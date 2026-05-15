@@ -1,0 +1,57 @@
+# Java / Maven
+backend/target/
+*.class
+*.jar
+*.war
+*.ear
+*.log
+.mvn/wrapper/maven-wrapper.jar
+
+# Node / Vite
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+*.swp
+*.swo
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project Plans (local reference only, not tracked)
+PLAN.md
+/plans/
+
+# AI coding tool config (per-developer, not project artifacts)
+CLAUDE.md
+**/CLAUDE.md
+AGENTS.md
+**/AGENTS.md
+.claude/
+.cursor/
+.cursorrules
+.aider*
+.codeium/
+.continue/
+.github/copilot-*
+.windsurfrules
+
+# Local task memory / agent harness state
+.context/
+ai-context/
+notes/agent-*.md
+
+# Local progress-push automation (do not track)
+push-progress.ps1
+.push-progress.state.json
+
