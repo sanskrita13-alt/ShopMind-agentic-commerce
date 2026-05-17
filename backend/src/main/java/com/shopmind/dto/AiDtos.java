@@ -1,0 +1,92 @@
+package com.shopmind.dto;
+
+import lombok.*;
+import java.util.List;
+import java.util.Map;
+
+/**
+ * Internal DTOs used by the AI pipeline services.
+ */
+public class AiDtos {
+
+    @Data @Builder @NoArgsConstructor @AllArgsConstructor
+    public static class ExtractedIntent {
+        private String primaryUseCase;
+        private String walkingDuration;
+        private Double budget;
+        private Double comfortPriority;
+        private Double stylePriority;
+        private Double durabilityPriority;
+        private String terrainType;
+        private String preferredFit;
+        private Boolean needsVersatility;
+        private Double confidenceScore;
+        private List<String> missingAttributes;
+        private List<String> contradictions;
+    }
+
+    @Data @Builder @NoArgsConstructor @AllArgsConstructor
+    public static class QuestionDecision {
+        private boolean readyToRecommend;
+        private String nextQuestion;
+        private String reasoning;
+        private List<String> missingAttributes;
+        private Double confidence;
+    }
+
+    @Data @Builder @NoArgsConstructor @AllArgsConstructor
+    public static class ProductMatch {
+        private String productId;
+        private String productName;
+        private String brand;
+        private String imageUrl;
+        private Double price;
+        private Double matchScore;
+        private Integer comfortScore;
+        private Integer durabilityScore;
+        private Integer styleScore;
+        private String reasoning;
+        private String tradeoffs;
+        private String notSuitableFor;
+        private List<RegretAnalysis> regretFlags;
+        private List<MerchantInfo> merchants;
+    }
+
+    @Data @Builder @NoArgsConstructor @AllArgsConstructor
+    public static class RegretAnalysis {
+        private String type;
+        private String title;
+        private String description;
+        private String severity;
+    }
+
+    @Data @Builder @NoArgsConstructor @AllArgsConstructor
+    public static class MerchantInfo {
+        private String name;
+        private Double price;
+        private String delivery;
+        private String returnPolicy;
+        private Double shipping;
+        private Boolean inStock;
+        private String url;
+        private Boolean bestValue;
+        private String reason;
+    }
+
+    @Data @Builder @NoArgsConstructor @AllArgsConstructor
+    public static class ProductData {
+        private String id;
+        private String title;
+        private String brand;
+        private String description;
+        private String productType;
+        private List<String> images;
+        private Double minPrice;
+        private Double maxPrice;
+        private String currency;
+        private Boolean available;
+        private List<String> tags;
+        private List<String> sizes;
+        private Map<String, Object> attributes;
+    }
+}
