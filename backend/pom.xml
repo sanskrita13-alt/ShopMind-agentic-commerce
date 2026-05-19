@@ -93,11 +93,20 @@
             <artifactId>jackson-datatype-jsr310</artifactId>
         </dependency>
 
-        <!-- Anthropic Java SDK (real-AI mode) -->
+        <!-- Auto-loads .env file so Spring Boot reads GROQ_API_KEY etc without manual export -->
         <dependency>
-            <groupId>com.anthropic</groupId>
-            <artifactId>anthropic-java</artifactId>
-            <version>1.1.0</version>
+            <groupId>me.paulschwarz</groupId>
+            <artifactId>spring-dotenv</artifactId>
+            <version>4.0.0</version>
+        </dependency>
+
+        <!-- Groq uses the OpenAI-compatible REST API via WebClient — no extra SDK needed -->
+
+        <!-- Apache Commons CSV — for parsing nike_products.csv at startup -->
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-csv</artifactId>
+            <version>1.11.0</version>
         </dependency>
 
         <!-- Test -->

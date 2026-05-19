@@ -283,14 +283,25 @@ public class ConversationService {
 
     private String generateRecommendationResponse(List<ProductMatch> matches, ExtractedIntent intent) {
         StringBuilder sb = new StringBuilder();
-        sb.append("Based on your needs");
+        sb.append("Alright — I've got a clear enough picture.");
         if (intent.getPrimaryUseCase() != null) {
-            sb.append(" for ").append(intent.getPrimaryUseCase());
+            sb.append(" ").append(capitalize(intent.getPrimaryUseCase())).append(",");
         }
-        sb.append(", I've curated ").append(matches.size()).append(" options that best match your requirements. ");
-        sb.append("Each recommendation includes my reasoning, tradeoff analysis, and potential concerns to help you decide with confidence.\n\n");
-        sb.append("Take a look at the recommendations panel — I've ranked them by overall fit for your lifestyle.");
+        if (intent.getWalkingDuration() != null) {
+            sb.append(" ").append(intent.getWalkingDuration()).append(" on your feet,");
+        }
+        if (intent.getBudget() != null) {
+            sb.append(" ₹").append(intent.getBudget().intValue()).append(" budget —");
+        }
+        sb.append(" here are ").append(matches.size()).append(" options I'd actually stand behind.\n\n");
+        sb.append("I've ranked them by how well they fit your stated priorities. ");
+        sb.append("Tap any card for my full reasoning, tradeoffs, and where to buy.");
         return sb.toString();
+    }
+
+    private String capitalize(String s) {
+        if (s == null || s.isEmpty()) return s;
+        return Character.toUpperCase(s.charAt(0)) + s.substring(1);
     }
 
     private IntentDTO toIntentDTO(ExtractedIntent intent) {

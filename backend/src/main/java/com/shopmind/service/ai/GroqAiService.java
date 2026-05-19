@@ -14,47 +14,39 @@ import org.springframework.http.client.reactive.ReactorClientHttpConnector;
 
 import java.time.Duration;
 import java.util.*;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /**
- * AI service backed by the Google Gemini REST API.
- * Uses responseMimeType=application/json for strict JSON output.
- * Hybrid: MockAiService for numeric scores, Gemini for reasoning enrichment.
- * All calls fall back silently to MockAiService on any error.
+ * AI service backed by the Groq REST API (OpenAI-compatible).
+ * Uses response_format=json_object for structured output.
+ * Combines intent extraction + question decision into one call per message turn.
+ * Falls back silently to MockAiService on any error or rate limit.
  */
 @Slf4j
-public class GeminiAiService implements AiService {
+public class GroqAiService implements AiService {
 
-    private static final Pattern JSON_FENCE = Pattern.compile("```(?:json)?\\s*([\\s\\S]*?)```");
-    private static final String GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta";
+    private static final String GROQ_BASE_URL = "https://api.groq.com/openai/v1";
 
-    /**
-     * Single combined prompt: extracts intent AND decides next question in one API call.
-     * The question decision is cached in PENDING_DECISION so decideNextQuestion() can read it
-     * without making a second network call.
-     */
     private static final String COMBINED_SYSTEM_PROMPT = """
         You are a footwear shopping advisor. Given a conversation, do two things in one response:
         1. Extract the shopper's buying intent.
         2. Decide what to ask next (or whether you have enough to recommend).
 
-        Respond with a single JSON object:
+        Respond with a single JSON object — no markdown fences, raw JSON only:
         {
           "primaryUseCase": "string or null",
           "walkingDuration": "string or null",
-          "budget": "number or null",
-          "comfortPriority": "number 0-1 or null",
-          "stylePriority": "number 0-1 or null",
-          "durabilityPriority": "number 0-1 or null",
+          "budget": 0,
+          "comfortPriority": 0.0,
+          "stylePriority": 0.0,
+          "durabilityPriority": 0.0,
           "terrainType": "string or null",
           "preferredFit": "string or null",
-          "needsVersatility": "boolean or null",
-          "confidenceScore": "required number 0-1",
-          "missingAttributes": "required string array",
-          "contradictions": "string array",
-          "readyToRecommend": "required boolean",
+          "needsVersatility": false,
+          "confidenceScore": 0.0,
+          "missingAttributes": [],
+          "contradictions": [],
+          "readyToRecommend": false,
           "nextQuestion": "string or null",
           "questionReasoning": "string"
         }
@@ -74,13 +66,13 @@ public class GeminiAiService implements AiService {
         You are a footwear advisor generating purchase reasoning for product recommendations.
         Given a shopper's intent and a list of scored shoe matches, write concise, honest reasoning.
 
-        Respond with a JSON array:
+        Respond with a JSON array — no markdown fences, raw JSON only:
         [
           {
-            "productId": string,
-            "reasoning": string,
-            "tradeoffs": string,
-            "notSuitableFor": string
+            "productId": "string",
+            "reasoning": "string",
+            "tradeoffs": "string",
+            "notSuitableFor": "string"
           }
         ]
 
@@ -103,8 +95,10 @@ public class GeminiAiService implements AiService {
     /** Caches the question decision parsed alongside intent in the same API call. */
     private final ThreadLocal<QuestionDecision> pendingDecision = new ThreadLocal<>();
 
-    public GeminiAiService(String apiKey, String model, long maxTokens,
-                           ObjectMapper objectMapper, MockAiService fallback) {
+    private static final int MAX_RETRIES = 3;
+
+    public GroqAiService(String apiKey, String model, long maxTokens,
+                         ObjectMapper objectMapper, MockAiService fallback) {
         this.apiKey = apiKey;
         this.model = model;
         this.maxTokens = maxTokens;
@@ -115,14 +109,13 @@ public class GeminiAiService implements AiService {
     @Override
     public ExtractedIntent extractIntent(List<Map<String, String>> conversationHistory) {
         if (!canCall()) return fallback.extractIntent(conversationHistory);
-        pendingDecision.remove(); // clear any stale cache from a previous turn
+        pendingDecision.remove();
         try {
             String userPrompt = "Conversation:\n" + formatHistory(conversationHistory)
                 + "\n\nExtract intent and decide what to ask next.";
-            String json = callGemini(COMBINED_SYSTEM_PROMPT, userPrompt, 768);
-            JsonNode node = objectMapper.readTree(stripFences(json));
+            String json = callGroq(COMBINED_SYSTEM_PROMPT, userPrompt, 768);
+            JsonNode node = objectMapper.readTree(json);
 
-            // Parse intent
             ExtractedIntent intent = objectMapper.treeToValue(node, ExtractedIntent.class);
             if (intent.getMissingAttributes() == null) intent.setMissingAttributes(List.of());
             if (intent.getContradictions()     == null) intent.setContradictions(List.of());
@@ -132,7 +125,6 @@ public class GeminiAiService implements AiService {
             }
             if (intent.getTerrainType() == null) intent.setTerrainType("urban");
 
-            // Cache the question decision so decideNextQuestion() avoids a second API call
             QuestionDecision decision = QuestionDecision.builder()
                 .readyToRecommend(node.path("readyToRecommend").asBoolean(false))
                 .nextQuestion(node.hasNonNull("nextQuestion") ? node.get("nextQuestion").asText() : null)
@@ -144,18 +136,16 @@ public class GeminiAiService implements AiService {
 
             return intent;
         } catch (Exception e) {
-            log.warn("Gemini intent+question call failed: {} — falling back to mock", e.getMessage());
+            log.warn("Groq intent+question call failed: {} — falling back to mock", e.getMessage());
             return fallback.extractIntent(conversationHistory);
         }
     }
 
     @Override
     public QuestionDecision decideNextQuestion(ExtractedIntent intent, int questionCount) {
-        // Return the decision already parsed alongside the intent — no extra API call
         QuestionDecision cached = pendingDecision.get();
         if (cached != null) {
             pendingDecision.remove();
-            // Apply hard cap: if questionCount >= 8 force readyToRecommend regardless of Gemini
             if (questionCount >= 8 && !cached.isReadyToRecommend()) {
                 return QuestionDecision.builder()
                     .readyToRecommend(true)
@@ -165,7 +155,6 @@ public class GeminiAiService implements AiService {
             }
             return cached;
         }
-        // Cache miss (e.g. extractIntent fell back to mock) — use mock decision
         return fallback.decideNextQuestion(intent, questionCount);
     }
 
@@ -174,8 +163,8 @@ public class GeminiAiService implements AiService {
         List<ProductMatch> scored = fallback.rankProducts(products, intent);
         if (!canCall() || scored.isEmpty()) return scored;
         try {
-            String json = callGemini(REASONING_SYSTEM_PROMPT, buildReasoningPrompt(scored, intent), 1024);
-            JsonNode reasoningArray = objectMapper.readTree(stripFences(json));
+            String json = callGroq(REASONING_SYSTEM_PROMPT, buildReasoningPrompt(scored, intent), 1024);
+            JsonNode reasoningArray = objectMapper.readTree(json);
             if (!reasoningArray.isArray()) return scored;
 
             Map<String, JsonNode> map = new HashMap<>();
@@ -197,12 +186,12 @@ public class GeminiAiService implements AiService {
                     .regretFlags(m.getRegretFlags()).merchants(m.getMerchants()).build();
             }).toList();
         } catch (Exception e) {
-            log.warn("Gemini reasoning failed: {} — using mock reasoning", e.getMessage());
+            log.warn("Groq reasoning failed: {} — using mock reasoning", e.getMessage());
             return scored;
         }
     }
 
-    // ─── Gemini REST ──────────────────────────────────────────────────────────
+    // ─── Groq REST ────────────────────────────────────────────────────────────
 
     private boolean canCall() { return apiKey != null && !apiKey.isBlank(); }
 
@@ -211,8 +200,9 @@ public class GeminiAiService implements AiService {
             synchronized (this) {
                 if (cachedClient == null) {
                     cachedClient = WebClient.builder()
-                        .baseUrl(GEMINI_BASE_URL)
+                        .baseUrl(GROQ_BASE_URL)
                         .defaultHeader("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+                        .defaultHeader("Authorization", "Bearer " + apiKey)
                         .clientConnector(new ReactorClientHttpConnector(
                             HttpClient.create().responseTimeout(Duration.ofSeconds(30))))
                         .codecs(c -> c.defaultCodecs().maxInMemorySize(4 * 1024 * 1024))
@@ -223,70 +213,62 @@ public class GeminiAiService implements AiService {
         return cachedClient;
     }
 
-    private static final int MAX_RETRIES = 3;
-
-    private String callGemini(String systemPrompt, String userPrompt, long tokenBudget) {
-        Map<String, Object> body = Map.of(
-            "systemInstruction", Map.of("parts", List.of(Map.of("text", systemPrompt))),
-            "contents", List.of(Map.of("role", "user", "parts", List.of(Map.of("text", userPrompt)))),
-            "generationConfig", Map.of(
-                "responseMimeType", "application/json",
-                "maxOutputTokens", Math.min(tokenBudget, maxTokens),
-                "temperature", 0.4)
+    private String callGroq(String systemPrompt, String userPrompt, long tokenBudget) {
+        List<Map<String, String>> messages = List.of(
+            Map.of("role", "system", "content", systemPrompt),
+            Map.of("role", "user",   "content", userPrompt)
         );
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("model", model);
+        body.put("messages", messages);
+        body.put("temperature", 0.4);
+        body.put("max_tokens", (int) Math.min(tokenBudget, maxTokens));
+        body.put("response_format", Map.of("type", "json_object"));
 
         Exception lastException = null;
         for (int attempt = 0; attempt < MAX_RETRIES; attempt++) {
             if (attempt > 0) {
                 try {
                     long backoffMs = 1000L * (1L << attempt); // 2s, 4s
-                    log.debug("Gemini retry {} after {}ms backoff", attempt, backoffMs);
+                    log.debug("Groq retry {} after {}ms backoff", attempt, backoffMs);
                     Thread.sleep(backoffMs);
                 } catch (InterruptedException ie) {
                     Thread.currentThread().interrupt();
-                    throw new IllegalStateException("Interrupted during Gemini retry backoff", ie);
+                    throw new IllegalStateException("Interrupted during Groq retry backoff", ie);
                 }
             }
             try {
                 JsonNode response = getClient().post()
-                    .uri("/models/" + model + ":generateContent?key=" + apiKey)
+                    .uri("/chat/completions")
                     .bodyValue(body)
                     .retrieve()
                     .bodyToMono(JsonNode.class)
                     .block(Duration.ofSeconds(30));
 
-                if (response == null) throw new IllegalStateException("Empty Gemini response");
-                if (response.has("error")) throw new IllegalStateException("Gemini error: " + response.get("error"));
+                if (response == null) throw new IllegalStateException("Empty Groq response");
+                if (response.has("error")) throw new IllegalStateException("Groq error: " + response.get("error"));
 
-                JsonNode candidates = response.path("candidates");
-                if (!candidates.isArray() || candidates.isEmpty())
-                    throw new IllegalStateException("No candidates in Gemini response");
-
-                StringBuilder text = new StringBuilder();
-                for (JsonNode part : candidates.get(0).path("content").path("parts"))
-                    text.append(part.path("text").asText(""));
-
-                String result = text.toString();
-                if (result.isBlank()) throw new IllegalStateException("Empty Gemini content");
-                return result;
+                String content = response.path("choices").path(0).path("message").path("content").asText("");
+                if (content.isBlank()) throw new IllegalStateException("Empty Groq content");
+                return content;
             } catch (Exception e) {
                 lastException = e;
                 String msg = e.getMessage() != null ? e.getMessage() : "";
-                if (msg.contains("429") || msg.contains("Too Many Requests") || msg.contains("RESOURCE_EXHAUSTED")) {
-                    log.warn("Gemini 429 rate limit on attempt {}/{} — retrying with backoff", attempt + 1, MAX_RETRIES);
+                if (msg.contains("429") || msg.contains("Too Many Requests") || msg.contains("rate_limit")) {
+                    log.warn("Groq 429 rate limit on attempt {}/{} — retrying with backoff", attempt + 1, MAX_RETRIES);
                 } else {
-                    throw e; // non-retriable error — fail fast
+                    throw e;
                 }
             }
         }
-        throw new IllegalStateException("Gemini rate-limited after " + MAX_RETRIES + " attempts", lastException);
+        throw new IllegalStateException("Groq rate-limited after " + MAX_RETRIES + " attempts", lastException);
     }
 
     // ─── Helpers ──────────────────────────────────────────────────────────────
 
     private String formatHistory(List<Map<String, String>> h) {
         return h.stream()
-            .map(m -> "[" + capitalize(m.getOrDefault("role","user")) + "]: " + m.getOrDefault("content",""))
+            .map(m -> "[" + capitalize(m.getOrDefault("role", "user")) + "]: " + m.getOrDefault("content", ""))
             .collect(Collectors.joining("\n"));
     }
 
@@ -309,14 +291,6 @@ public class GeminiAiService implements AiService {
                 + "\n\nProducts:\n" + objectMapper.writeValueAsString(compact)
                 + "\n\nWrite honest reasoning for each product.";
         } catch (Exception e) { throw new IllegalStateException("Failed to build reasoning prompt", e); }
-    }
-
-    private String stripFences(String raw) {
-        if (raw == null) return "{}";
-        String t = raw.trim();
-        Matcher m = JSON_FENCE.matcher(t);
-        if (m.find()) return m.group(1).trim();
-        return t;
     }
 
     private String textOrFallback(JsonNode n, String key, String fb) {

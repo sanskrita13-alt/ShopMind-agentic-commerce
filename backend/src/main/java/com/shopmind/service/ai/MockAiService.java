@@ -170,33 +170,46 @@ public class MockAiService implements AiService {
         String question;
         String reasoning;
 
+        String useCase = intent.getPrimaryUseCase();
         switch (nextAttr) {
             case "primaryUseCase" -> {
-                question = "What will you primarily use these shoes for? For example: college, gym, running, walking, or casual everyday wear?";
-                reasoning = "Understanding primary use case is essential to recommend the right shoe category.";
+                question = "What will you mainly use these for — college, gym, running, walking, or casual everyday wear?";
+                reasoning = "Use case is the foundation of the recommendation.";
             }
             case "walkingDuration" -> {
-                question = "How many hours are you typically on your feet each day?";
+                if (useCase != null) {
+                    question = "For " + useCase + ", how many hours are you typically on your feet each day?";
+                } else {
+                    question = "How many hours are you typically on your feet each day?";
+                }
                 reasoning = "Walking duration directly affects the cushioning and support level needed.";
             }
             case "budget" -> {
-                question = "What budget range are you comfortable with? This helps me find the best value options.";
+                if (useCase != null) {
+                    question = "What budget are you working with for these? (in ₹) — helps me narrow down the right tier for " + useCase + ".";
+                } else {
+                    question = "What budget range are you comfortable with? (in ₹)";
+                }
                 reasoning = "Budget determines which product tier and merchants to prioritize.";
             }
             case "comfortPriority" -> {
-                question = "What matters more to you overall — comfort or style?";
+                if (useCase != null) {
+                    question = "For " + useCase + " — comfort or style: which matters more to you right now?";
+                } else {
+                    question = "Between comfort and style, which matters more to you?";
+                }
                 reasoning = "This tradeoff shapes whether I prioritize cushioning technology or design aesthetics.";
             }
             case "stylePriority" -> {
-                question = "How important is the shoe's appearance for your daily outfits?";
+                question = "How much does the shoe's look matter to you for your daily outfits?";
                 reasoning = "Style priority helps balance between performance features and visual appeal.";
             }
             case "preferredFit" -> {
-                question = "Do you have any fit preferences? For example, do you prefer a wider toe box or a snug racing fit?";
-                reasoning = "Fit preferences help prevent sizing regret, which is the #1 return reason.";
+                question = "Any fit preferences — wider toe box, snug fit, or no strong preference?";
+                reasoning = "Fit preferences prevent the #1 return reason: sizing regret.";
             }
             default -> {
-                question = "Is there anything else you'd like me to consider for your recommendation?";
+                question = "Anything else I should factor in for your recommendation?";
                 reasoning = "Gathering additional context to refine the recommendation.";
             }
         }
