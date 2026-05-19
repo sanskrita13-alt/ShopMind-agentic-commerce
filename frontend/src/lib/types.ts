@@ -12,6 +12,7 @@ export interface MessageDTO {
 
 export interface IntentDTO {
   primaryUseCase?: string;
+  gender?: 'male' | 'female' | 'unisex';
   walkingDuration?: string;
   budget?: number;
   comfortPriority?: number;
@@ -66,6 +67,12 @@ export interface RecommendationDTO {
   fitNote?: string;
   weightG?: number;
   dropMm?: number;
+  createdAt?: string;
+}
+
+export interface CreateSessionResponse {
+  sessionId: string;
+  guestId: string;
 }
 
 export interface DebugInfo {

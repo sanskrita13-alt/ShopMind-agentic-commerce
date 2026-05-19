@@ -32,15 +32,14 @@ public class ConversationService {
     private final ObjectMapper objectMapper;
 
     @Transactional
-    public ConversationSession createSession() {
+    public ConversationSession createSession(String guestId) {
         var session = ConversationSession.builder()
-            .guestId(UUID.randomUUID().toString())
+            .guestId(guestId != null && !guestId.isBlank() ? guestId : UUID.randomUUID().toString())
             .status(ConversationSession.SessionStatus.ACTIVE)
             .build();
 
         session = sessionRepo.save(session);
 
-        // Add system greeting
         var greeting = ConversationMessage.builder()
             .session(session)
             .role(ConversationMessage.MessageRole.ASSISTANT)
@@ -50,6 +49,11 @@ public class ConversationService {
         messageRepo.save(greeting);
 
         return session;
+    }
+
+    public List<RecommendationDTO> getRecommendationHistory(String guestId) {
+        return recommendationRepo.findBySession_GuestIdOrderByCreatedAtDesc(guestId)
+            .stream().map(this::toRecommendationDTO).toList();
     }
 
     @Transactional
@@ -307,6 +311,7 @@ public class ConversationService {
     private IntentDTO toIntentDTO(ExtractedIntent intent) {
         return IntentDTO.builder()
             .primaryUseCase(intent.getPrimaryUseCase())
+            .gender(intent.getGender())
             .walkingDuration(intent.getWalkingDuration())
             .budget(intent.getBudget())
             .comfortPriority(intent.getComfortPriority())
@@ -355,6 +360,7 @@ public class ConversationService {
                 .bestValue(mo.getBestValue())
                 .whyRecommended(mo.getWhyRecommended())
                 .build()).toList())
+            .createdAt(rec.getCreatedAt() != null ? rec.getCreatedAt().toString() : null)
             .build();
     }
 

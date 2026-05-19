@@ -1,21 +1,26 @@
 import { create } from 'zustand';
 import type { MessageDTO, IntentDTO, RecommendationDTO, DebugInfo } from '@/lib/types';
-import { createSession, sendMessage } from '@/lib/api';
+import { createSession, sendMessage, getRecommendationHistory } from '@/lib/api';
 
-export type Phase = 'discovery' | 'shortlist' | 'compare' | 'deepdive';
+const GUEST_ID_KEY = 'shopmind_guest_id';
+
+export type Phase = 'discovery' | 'shortlist' | 'compare' | 'deepdive' | 'archive';
 export type NavTab = 'Curations' | 'Intelligence' | 'Archive';
 export const PHASE_TO_TAB: Record<Phase, NavTab> = {
   discovery: 'Intelligence',
   shortlist:  'Intelligence',
   compare:    'Intelligence',
   deepdive:   'Archive',
+  archive:    'Archive',
 };
 
 interface ChatState {
   sessionId: string | null;
+  guestId: string | null;
   messages: MessageDTO[];
   intent: IntentDTO | null;
   recommendations: RecommendationDTO[];
+  archive: RecommendationDTO[];
   debugInfo: DebugInfo | null;
   isLoading: boolean;
   reasoningStatus: string | null;
@@ -28,6 +33,7 @@ interface ChatState {
 
   initSession: () => Promise<void>;
   send: (content: string) => Promise<void>;
+  loadArchive: () => Promise<void>;
   setSelectedProduct: (product: RecommendationDTO | null) => void;
   toggleDebug: () => void;
   reset: () => void;
@@ -126,11 +132,19 @@ const MOCK_RECOMMENDATIONS: RecommendationDTO[] = [
   },
 ];
 
+const GREETING: MessageDTO = {
+  id: 'greeting', role: 'assistant',
+  content: "Hey — I'm here to help you find shoes you won't regret. Tell me what you're shopping for, in your own words.",
+  reasoningStatus: 'ready',
+};
+
 export const useChatStore = create<ChatState>((set, get) => ({
   sessionId: null,
+  guestId: null,
   messages: [],
   intent: null,
   recommendations: [],
+  archive: [],
   debugInfo: null,
   isLoading: false,
   reasoningStatus: null,
@@ -142,29 +156,32 @@ export const useChatStore = create<ChatState>((set, get) => ({
   activeProductId: null,
 
   initSession: async () => {
+    // Always wipe conversation state on every page load — fresh start
+    set({
+      sessionId: null, messages: [], intent: null, recommendations: [],
+      debugInfo: null, isLoading: false, reasoningStatus: null, error: null,
+      selectedProduct: null, phase: 'discovery', compareSet: [], activeProductId: null,
+    });
+    const storedGuestId = localStorage.getItem(GUEST_ID_KEY) ?? undefined;
     try {
-      const sessionId = await createSession();
-      set({
-        sessionId,
-        messages: [{
-          id: 'greeting', role: 'assistant',
-          content: "Hey — I'm here to help you find shoes you won't regret. Tell me what you're shopping for, in your own words.",
-          reasoningStatus: 'ready',
-        }],
-        error: null,
-        phase: 'discovery',
-      });
+      const { sessionId, guestId } = await createSession(storedGuestId);
+      localStorage.setItem(GUEST_ID_KEY, guestId);
+      set({ sessionId, guestId, messages: [GREETING], error: null, phase: 'discovery' });
     } catch {
-      set({
-        sessionId: 'mock-session',
-        messages: [{
-          id: 'greeting', role: 'assistant',
-          content: "Hey — I'm here to help you find shoes you won't regret. Tell me what you're shopping for, in your own words.",
-          reasoningStatus: 'ready',
-        }],
-        error: null,
-        phase: 'discovery',
-      });
+      const guestId = storedGuestId ?? crypto.randomUUID();
+      localStorage.setItem(GUEST_ID_KEY, guestId);
+      set({ sessionId: 'mock-session', guestId, messages: [GREETING], error: null, phase: 'discovery' });
+    }
+  },
+
+  loadArchive: async () => {
+    const { guestId } = get();
+    if (!guestId || guestId === 'mock-session') return;
+    try {
+      const archive = await getRecommendationHistory(guestId);
+      set({ archive });
+    } catch {
+      // silently ignore — archive stays as-is
     }
   },
 
@@ -254,5 +271,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
     sessionId: null, messages: [], intent: null, recommendations: [],
     debugInfo: null, isLoading: false, reasoningStatus: null, error: null,
     selectedProduct: null, showDebug: false, phase: 'discovery', compareSet: [], activeProductId: null,
+    // guestId and archive are intentionally preserved across resets
   }),
 }));

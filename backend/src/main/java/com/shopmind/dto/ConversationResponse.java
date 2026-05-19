@@ -23,6 +23,7 @@ public class ConversationResponse {
     @Data @Builder @NoArgsConstructor @AllArgsConstructor
     public static class IntentDTO {
         private String primaryUseCase;
+        private String gender;
         private String walkingDuration;
         private Double budget;
         private Double comfortPriority;
@@ -54,6 +55,7 @@ public class ConversationResponse {
         private Integer rank;
         private List<RegretFlagDTO> regretFlags;
         private List<MerchantOfferDTO> merchantOffers;
+        private String createdAt;
     }
 
     @Data @Builder @NoArgsConstructor @AllArgsConstructor

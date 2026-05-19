@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import { useChatStore, type Phase, type NavTab, PHASE_TO_TAB } from "@/store/chat";
 import type { RecommendationDTO } from "@/lib/types";
 
@@ -35,9 +35,6 @@ function TopNav({ activeTab, onTab }: { activeTab: NavTab; onTab: (t: NavTab) =>
           </button>
         ))}
       </nav>
-      <div className="cp-nav-right">
-        <button className="cp-nav-icon" aria-label="Search"><Ico.Search width={18} height={18} /></button>
-      </div>
     </header>
   );
 }
@@ -102,6 +99,15 @@ function RecFlag({ flag }: { flag: RecommendationDTO["regretFlags"][number] }) {
       </div>
     </div>
   );
+}
+
+function fitLabel(pct: number): string {
+  if (pct >= 90) return "Excellent";
+  if (pct >= 75) return "Strong";
+  if (pct >= 60) return "Good";
+  if (pct >= 45) return "Moderate";
+  if (pct >= 30) return "Low";
+  return "Weak";
 }
 
 /* ══════════════════════════════════════════════════════════════════
@@ -184,16 +190,18 @@ function StageDiscovery({ onShortlist: _onShortlist }: { onShortlist: () => void
         <div className="cp-fit-bars">
           <div className="cp-fit-bars-k">Explainable fit</div>
           {[
-            { l: "Cushioning & Support", v: Math.round((intent?.comfortPriority || 0.7) * 100), m: "Optimized" },
-            { l: "Value-for-Money",      v: 78, m: "Peak" },
-            { l: "Daily Aesthetics",     v: Math.round((intent?.stylePriority || 0.5) * 100), m: "Balanced" },
+            { l: "Cushioning & Support", v: Math.round((intent?.comfortPriority || 0.7) * 100) },
+            { l: "Value-for-Money",      v: 78 },
+            { l: "Daily Aesthetics",     v: Math.round((intent?.stylePriority  || 0.5) * 100) },
           ].map((r, i) => (
             <div key={i} className="cp-fitbar">
               <div className="cp-fitbar-head">
                 <div className="cp-fitbar-lbl">{r.l}</div>
-                <div className="cp-fitbar-track"><div className="cp-fitbar-fill" style={{ width: `${r.v}%` }} /></div>
+                <div className="cp-fitbar-val">{fitLabel(r.v)}</div>
               </div>
-              <div className="cp-fitbar-val">{r.m}</div>
+              <div className="cp-fitbar-track">
+                <div className="cp-fitbar-fill" style={{ width: `${r.v}%` }} />
+              </div>
             </div>
           ))}
         </div>
@@ -602,14 +610,102 @@ function StageDeepDive() {
 }
 
 /* ══════════════════════════════════════════════════════════════════
+   STAGE: ARCHIVE — persisted recommendations across all sessions
+   ══════════════════════════════════════════════════════════════════ */
+function StageArchive() {
+  const { archive, setActiveProduct, setPhase } = useChatStore();
+
+  if (archive.length === 0) {
+    return (
+      <section className="cp-stage" style={{ textAlign: "center", paddingTop: 80 }}>
+        <div style={{ color: "var(--cp-mute)", fontSize: 14, lineHeight: 1.7 }}>
+          <div style={{ fontSize: 32, marginBottom: 16 }}>📭</div>
+          No saved recommendations yet.<br />
+          Complete a discovery session and your shortlisted shoes will appear here.
+        </div>
+      </section>
+    );
+  }
+
+  // Group by date
+  const grouped = archive.reduce<Record<string, typeof archive>>((acc, rec) => {
+    const day = rec.createdAt ? new Date(rec.createdAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : "Unknown date";
+    (acc[day] ??= []).push(rec);
+    return acc;
+  }, {});
+
+  return (
+    <section className="cp-stage">
+      <header className="cp-sechead">
+        <div>
+          <span className="cp-kicker">Saved recommendations · {archive.length} shoe{archive.length !== 1 ? "s" : ""}</span>
+          <h2>Your recommendation history.</h2>
+          <p>Every shortlist ShopMind built for you, preserved across sessions.</p>
+        </div>
+      </header>
+
+      {Object.entries(grouped).map(([date, recs]) => (
+        <div key={date} style={{ marginBottom: 32 }}>
+          <div className="cp-kicker" style={{ marginBottom: 14, paddingBottom: 8, borderBottom: "1px solid var(--cp-line)" }}>{date}</div>
+          <div className="cp-recs">
+            {recs.map(rec => (
+              <article key={rec.id} className="cp-rec" onClick={() => { setActiveProduct(rec.id); setPhase("deepdive"); }}>
+                <div className="cp-rec-media">
+                  {rec.productImageUrl && <img src={rec.productImageUrl} alt={rec.productName} referrerPolicy="no-referrer" />}
+                  <span className="cp-rec-fit">{Math.round(rec.matchScore * 100)}% Match</span>
+                  <div className="cp-rec-rank">{rec.rank}</div>
+                </div>
+                <div className="cp-rec-body">
+                  <div>
+                    <div className="cp-rec-brand">{rec.productBrand}</div>
+                    <div className="cp-rec-name">{rec.productName}</div>
+                  </div>
+                  <p className="cp-rec-tagline">{rec.tagline || rec.reasoning.split(".")[0]}</p>
+                  <div className="cp-rec-scores">
+                    {[
+                      { l: "Comfort",    v: rec.comfortScore },
+                      { l: "Durability", v: rec.durabilityScore },
+                      { l: "Style",      v: rec.styleScore },
+                    ].map((r, i) => (
+                      <div key={i} className="cp-rec-score">
+                        <div className="cp-rec-score-lbl">{r.l}</div>
+                        <div className="cp-rec-score-track"><div className="cp-rec-score-fill" style={{ width: `${r.v}%` }} /></div>
+                        <div className="cp-rec-score-val">{r.v}/100</div>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="cp-rec-foot">
+                    <div className="cp-rec-price"><small>₹</small>{rec.price.toLocaleString("en-IN")}</div>
+                  </div>
+                </div>
+              </article>
+            ))}
+          </div>
+        </div>
+      ))}
+    </section>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════════
    MAIN CHAT PAGE
    ══════════════════════════════════════════════════════════════════ */
 export default function ChatPage() {
-  const { phase, setPhase, recommendations, initSession } = useChatStore();
+  const { phase, setPhase, recommendations, initSession, loadArchive, send } = useChatStore();
+  const location = useLocation();
 
-  useEffect(() => { initSession(); }, [initSession]);
+  useEffect(() => {
+    const query = (location.state as { query?: string } | null)?.query?.trim();
+    initSession().then(() => {
+      if (query) {
+        send(query);
+        // clear state so a back-navigate doesn't re-fire it
+        window.history.replaceState({}, "");
+      }
+    });
+  }, []);
 
-  const activeTab: NavTab = phase === "deepdive" ? "Archive" : "Intelligence";
+  const activeTab: NavTab = (phase === "deepdive" || phase === "archive") ? "Archive" : "Intelligence";
 
   function handleTab(tab: NavTab) {
     if (tab === "Curations") { window.location.href = "/"; return; }
@@ -618,14 +714,16 @@ export default function ChatPage() {
       else setPhase("discovery");
     }
     if (tab === "Archive") {
-      if (recommendations.length > 0) setPhase("deepdive");
+      loadArchive();
+      setPhase("archive");
     }
   }
 
   const Stage = () => {
-    if (phase === "compare"  && recommendations.length > 0) return <StageCompare />;
-    if (phase === "deepdive" && recommendations.length > 0) return <StageDeepDive />;
-    if (phase === "shortlist" && recommendations.length > 0) return <StageShortlist />;
+    if (phase === "archive")                                    return <StageArchive />;
+    if (phase === "compare"  && recommendations.length > 0)     return <StageCompare />;
+    if (phase === "deepdive" && recommendations.length > 0)     return <StageDeepDive />;
+    if (phase === "shortlist" && recommendations.length > 0)    return <StageShortlist />;
     return <StageDiscovery onShortlist={() => recommendations.length > 0 ? setPhase("shortlist") : undefined} />;
   };
 

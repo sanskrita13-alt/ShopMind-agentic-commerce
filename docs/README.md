@@ -1,741 +1,707 @@
-# ShopMind — AI-Powered Shoe Recommendation Engine
+# ShopMind — AI Footwear Decision Intelligence
 
-A lightweight, conversational AI platform that helps shoppers find the perfect shoes through natural dialogue. Built with **Spring Boot 3.4.5** (Java 21) backend and **Vite + React 19** frontend.
-
-**Status:** MVP with Shopify live product integration + multi-provider AI (mock / Gemini / Claude)
-**Hosted:** Local dev (can run on 1GB RAM VPS)
+ShopMind is a full-stack AI shopping assistant that helps users find footwear they won't regret. It replaces generic product grids with a guided conversation, scores every product against the user's stated priorities, and explains every recommendation with transparent reasoning and tradeoff analysis.
 
 ---
 
-## 🎯 What It Does
+## Table of Contents
 
-1. **Conversational Intent Extraction** — Asks targeted questions to understand shopper needs:
-   - Primary use case (running, walking, casual, gym, college, etc.)
-   - Hours on feet per day
-   - Budget range
-   - Comfort/style/durability priorities
-   - Terrain type (urban, trail, mixed)
-   - Fit preference (wide, narrow, standard)
-   - Versatility needs
-
-2. **Smart Product Ranking** — Scores shoes against the shopper's intent using:
-   - Attribute matching (cushioning, weight, support, terrain)
-   - Budget fit analysis
-   - Durability + style scoring
-   - Regret flag detection (e.g., "too heavy for 6+ hour walks")
-
-3. **Merchant Integration** — Shows live Shopify prices, availability, and variants
-
-4. **Reasoning Explanations** — Explains *why* each shoe matches their needs (powered by Claude AI)
-
----
-
-## 🏗️ Architecture
-
-### Backend (Spring Boot)
-```
-src/main/java/com/shopmind/
-├── controller/           # REST endpoints
-│   └── ConversationController.java
-├── service/
-│   ├── ai/               # Intent extraction + ranking (provider-switchable)
-│   │   ├── AiService.java (interface)
-│   │   ├── MockAiService.java (deterministic keyword scoring)
-│   │   ├── GeminiAiService.java (Google Gemini REST)
-│   │   └── ClaudeAiService.java (Anthropic SDK)
-│   ├── product/          # Product catalog
-│   │   ├── MockProductService.java
-│   │   └── ShopifyProductService.java (Storefront API)
-│   └── conversation/     # Orchestration
-│       └── ConversationService.java
-├── entity/               # JPA entities (H2 + PostgreSQL)
-│   ├── ConversationSession
-│   ├── ConversationMessage
-│   ├── UserIntent
-│   ├── Recommendation
-│   ├── RegretFlag
-│   ├── MerchantOffer
-│   └── ProductSnapshot
-├── repository/           # Data access
-│   ├── ConversationSessionRepository
-│   ├── ConversationMessageRepository
-│   ├── UserIntentRepository
-│   ├── RecommendationRepository
-│   └── ProductSnapshotRepository
-├── dto/                  # DTOs for API responses
-│   └── AiDtos.java
-├── config/               # Spring configuration
-│   ├── CorsConfig.java
-│   ├── WebClientConfig.java (Shopify API client)
-│   ├── AiServiceConfig.java (AI bean selection)
-│   └── RedisConfig.java (placeholder for caching)
-└── exception/            # Error handling
-    └── GlobalExceptionHandler.java
-```
-
-### Frontend (Vite + React)
-```
-frontend/
-├── index.html            # Vite entry HTML
-├── vite.config.ts        # Vite + Tailwind plugin config
-├── src/
-│   ├── main.tsx          # React root + BrowserRouter
-│   ├── App.tsx           # Route table (React Router)
-│   ├── index.css         # Tailwind + design tokens
-│   ├── pages/
-│   │   ├── Landing.tsx   # /
-│   │   └── Chat.tsx      # /chat
-│   ├── store/
-│   │   └── chat.ts       # Zustand state
-│   └── lib/
-│       ├── api.ts        # Axios API client
-│       └── types.ts      # TypeScript types
-└── public/               # Static assets served at /
-```
-
-### Database Schema (JPA + H2/PostgreSQL)
-- **conversation_sessions** — Tracks active/completed conversations
-- **conversation_messages** — Full chat history with metadata
-- **user_intents** — Versioned intent state (evolves per turn)
-- **recommendations** — Ranked shoe matches with scores
-- **regret_flags** — Warnings (e.g., "too heavy", "wrong terrain")
-- **merchant_offers** — Pricing from Shopify variants
-- **product_snapshots** — Cached Shopify products (30-min TTL)
+1. [What it does](#what-it-does)
+2. [Architecture overview](#architecture-overview)
+3. [Project structure](#project-structure)
+4. [Tech stack](#tech-stack)
+5. [Prerequisites](#prerequisites)
+6. [Getting started](#getting-started)
+   - [Backend setup](#backend-setup)
+   - [Frontend setup](#frontend-setup)
+7. [Environment variables](#environment-variables)
+   - [Backend (.env)](#backend-env)
+   - [Frontend (.env)](#frontend-env)
+8. [AI providers](#ai-providers)
+   - [Groq (recommended)](#groq-recommended)
+   - [Gemini (alternative)](#gemini-alternative)
+   - [Mock (offline / testing)](#mock-offline--testing)
+9. [How the conversation works](#how-the-conversation-works)
+10. [Frontend pages and phases](#frontend-pages-and-phases)
+11. [Backend API reference](#backend-api-reference)
+12. [Key backend services](#key-backend-services)
+13. [Database](#database)
+14. [Product catalog](#product-catalog)
+15. [Running in production](#running-in-production)
+16. [Troubleshooting](#troubleshooting)
 
 ---
 
-## 🚀 Quick Start
+## What it does
 
-### Prerequisites
-- **Java 21** (or use `./mvnw` wrapper)
-- **Node.js 20+** + npm
-- **PostgreSQL 14+** (optional, H2 used by default for dev)
-- **Shopify Storefront API token** (optional, falls back to mock catalog)
-- **Google Gemini API key** _or_ **Anthropic Claude API key** (optional, falls back to mock AI)
+- **Conversational discovery** — the AI asks focused questions (use case, hours on feet, budget, comfort vs style) and adjusts each question based on what the user has already said.
+- **Intent extraction** — every user message is parsed into a structured intent object: `primaryUseCase`, `budget`, `comfortPriority`, `stylePriority`, `terrainType`, etc.
+- **Product scoring** — every product in the catalog is scored against the intent across comfort, durability, style, and budget fit.
+- **Shortlist** — the top 3 products are returned with match scores (0–100%), comfort/durability/style scores, reasoning, and tradeoff analysis.
+- **Regret prevention** — products are flagged with warnings (sizing issues, cushioning gaps for long wear, weight concerns) before the user buys.
+- **Compare** — side-by-side head-to-head view with per-row winners highlighted.
+- **Deep dive** — full product detail with retailer comparison table, pricing, delivery estimates, and return policy.
 
-### Backend Setup
+---
+
+## Architecture overview
+
+```
+┌─────────────────────────────────────────────┐
+│  Browser (React SPA)                        │
+│  Landing page → Conversational Chat UI      │
+│  Phases: discovery → shortlist → compare    │
+│           → deep dive                       │
+└──────────────────┬──────────────────────────┘
+                   │  HTTP  (Axios)
+                   │  VITE_API_URL=http://localhost:8080/api/v1
+                   ▼
+┌─────────────────────────────────────────────┐
+│  Spring Boot Backend  (:8080)               │
+│                                             │
+│  ConversationController                     │
+│      └─ ConversationService                 │
+│           ├─ AiService (interface)          │
+│           │    ├─ GroqAiService    ◄── recommended
+│           │    ├─ GeminiAiService  ◄── alternative
+│           │    └─ MockAiService    ◄── default / fallback
+│           ├─ ShopifyProductService          │
+│           └─ MockProductService             │
+│                                             │
+│  H2 in-memory DB (dev)                      │
+│  PostgreSQL (prod)                          │
+└─────────────────────────────────────────────┘
+                   │
+                   ▼
+         Groq / Gemini REST API
+         (llama-3.3-70b-versatile)
+```
+
+Each user message triggers one AI call that simultaneously:
+1. Extracts structured intent from the full conversation history
+2. Decides what to ask next (or triggers recommendations if confidence ≥ 0.65)
+
+---
+
+## Project structure
+
+```
+shopmind/
+├── README.md
+├── frontend/                          # React + Vite SPA
+│   ├── src/
+│   │   ├── main.tsx                   # Entry point
+│   │   ├── App.tsx                    # Router (/ and /chat)
+│   │   ├── pages/
+│   │   │   ├── Landing.tsx            # Hero page with search bar
+│   │   │   └── Chat.tsx               # Full chat + shortlist + compare + deep dive
+│   │   ├── store/
+│   │   │   └── chat.ts                # Zustand state (session, messages, intent, recs)
+│   │   ├── lib/
+│   │   │   ├── api.ts                 # Axios API client
+│   │   │   └── types.ts               # Shared TypeScript types
+│   │   └── index.css                  # Global design tokens + component styles
+│   ├── .env                           # VITE_API_URL (committed template)
+│   └── package.json
+│
+└── backend/                           # Spring Boot 3 / Java 21
+    ├── .env                           # Real secrets — loaded automatically at startup
+    ├── pom.xml
+    └── src/main/java/com/shopmind/
+        ├── ShopMindApplication.java
+        ├── config/
+        │   ├── AiServiceConfig.java   # Selects Groq / Gemini / Mock bean
+        │   ├── CorsConfig.java
+        │   ├── RedisConfig.java
+        │   └── WebClientConfig.java
+        ├── controller/
+        │   └── ConversationController.java
+        ├── service/
+        │   ├── ai/
+        │   │   ├── AiService.java         # Interface
+        │   │   ├── GroqAiService.java     # Groq (OpenAI-compatible)
+        │   │   ├── GeminiAiService.java   # Google Gemini
+        │   │   └── MockAiService.java     # Deterministic fallback
+        │   ├── conversation/
+        │   │   └── ConversationService.java
+        │   └── product/
+        │       ├── ShopifyProductService.java
+        │       └── MockProductService.java
+        ├── entity/                    # JPA entities
+        │   ├── ConversationSession.java
+        │   ├── ConversationMessage.java
+        │   ├── UserIntent.java
+        │   ├── Recommendation.java
+        │   ├── RegretFlag.java
+        │   ├── MerchantOffer.java
+        │   └── ProductSnapshot.java
+        ├── dto/                       # Request / response objects
+        │   ├── AiDtos.java            # ExtractedIntent, QuestionDecision, ProductMatch, etc.
+        │   ├── ConversationResponse.java
+        │   ├── MessageRequest.java
+        │   └── SessionResponse.java
+        ├── repository/                # Spring Data JPA repositories
+        └── resources/
+            ├── application.properties
+            └── nike_products.csv      # 51-product mock catalog
+```
+
+---
+
+## Tech stack
+
+### Frontend
+
+| Layer | Technology |
+|---|---|
+| Framework | React 19 |
+| Build tool | Vite 7 |
+| Language | TypeScript 5 |
+| Routing | React Router DOM v7 |
+| State management | Zustand 5 |
+| HTTP client | Axios |
+| Animation | Framer Motion |
+| Icons | Lucide React |
+| Styling | Tailwind CSS v4 (via `@tailwindcss/vite`) |
+
+### Backend
+
+| Layer | Technology |
+|---|---|
+| Framework | Spring Boot 3.4.5 |
+| Language | Java 21 |
+| HTTP client | Spring WebFlux WebClient |
+| ORM | Spring Data JPA + Hibernate |
+| Database (dev) | H2 in-memory |
+| Database (prod) | PostgreSQL |
+| JSON | Jackson |
+| CSV parsing | Apache Commons CSV |
+| Env loading | spring-dotenv |
+| Boilerplate | Lombok, MapStruct |
+
+---
+
+## Prerequisites
+
+- **Java 21** — `java -version` should show 21.x
+- **Maven 3.9+** — `mvn -version`
+- **Node.js 20+** — `node -v`
+- **npm 10+** — `npm -v`
+- A **Groq API key** (free, no credit card) — get one at `console.groq.com/keys`
+
+---
+
+## Getting started
+
+### Backend setup
 
 ```bash
-cd backend
+cd shopmind/backend
+```
 
-# Build
-mvn clean package
+**1. Add your Groq API key to `.env`:**
 
-# Run locally (H2 in-memory database, mock AI, mock products)
-mvn spring-boot:run
+Open `backend/.env` and fill in:
 
-# Or with environment variables for real Shopify + real AI
-export SHOPMIND_AI_PROVIDER=gemini      # or "claude"
-export GOOGLE_API_KEY=AIza...           # if provider=gemini
-export ANTHROPIC_API_KEY=sk-ant-...     # if provider=claude
-export SHOPIFY_STORE_DOMAIN=your-store.myshopify.com
-export SHOPIFY_STOREFRONT_TOKEN=shpat_...
+```
+GROQ_API_KEY=gsk_your_key_here
+```
 
+Everything else is pre-configured. The `spring-dotenv` library loads this file automatically on startup — no manual `export` required.
+
+**2. Start the backend:**
+
+```bash
 mvn spring-boot:run
 ```
 
-**Backend runs on:** `http://localhost:8080`
+The server starts on `http://localhost:8080`. First run downloads dependencies (~2 min). Subsequent runs start in ~7 seconds.
 
-**API Base:** `http://localhost:8080/api/v1`
-
-### Frontend Setup
+**Verify it's working:**
 
 ```bash
-cd frontend
+curl -X POST http://localhost:8080/api/v1/conversations
+# → {"sessionId":"xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"}
+```
 
-# Install
+---
+
+### Frontend setup
+
+```bash
+cd shopmind/frontend
 npm install
-
-# Development server (hot reload)
 npm run dev
-
-# Or build for production (outputs to dist/)
-npm run build
-npm run preview
 ```
 
-**Frontend runs on:** `http://localhost:3000`
+The app opens at `http://localhost:3000`.
+
+**Available scripts:**
+
+| Command | What it does |
+|---|---|
+| `npm run dev` | Start Vite dev server on port 3000 with HMR |
+| `npm run build` | TypeScript check + production build to `dist/` |
+| `npm run preview` | Serve the production build locally |
+| `npm run lint` | ESLint check |
 
 ---
 
-## 📡 API Endpoints
+## Environment variables
 
-### Create a Conversation Session
-```http
-POST /api/v1/conversations
-Content-Type: application/json
+### Backend (`.env`)
 
-Response:
+Located at `backend/.env`. Loaded automatically by `spring-dotenv`.
+
+| Variable | Default | Description |
+|---|---|---|
+| `SHOPMIND_AI_PROVIDER` | `mock` | AI engine: `groq`, `gemini`, or `mock` |
+| `GROQ_API_KEY` | _(empty)_ | Groq API key. If blank, falls back to mock. |
+| `GROQ_MODEL` | `llama-3.3-70b-versatile` | Groq model to use |
+| `GOOGLE_API_KEY` | _(empty)_ | Gemini API key. Used when provider=gemini. |
+| `GEMINI_MODEL` | `gemini-2.0-flash` | Gemini model to use |
+| `LLM_MAX_TOKENS` | `2048` | Max output tokens per AI call |
+| `SHOPIFY_STORE_DOMAIN` | _(demo)_ | Shopify store domain for live products |
+| `SHOPIFY_STOREFRONT_TOKEN` | `mock` | Storefront API token. Set to `mock` for CSV catalog. |
+| `CORS_ORIGINS` | `http://localhost:3000` | Comma-separated allowed frontend origins |
+| `LOG_LEVEL` | `INFO` | Spring logging level |
+| `H2_CONSOLE_ENABLED` | `false` | Enable H2 web console at `/h2-console` |
+
+### Frontend (`.env`)
+
+Located at `frontend/.env`.
+
+| Variable | Default | Description |
+|---|---|---|
+| `VITE_API_URL` | `http://localhost:8080/api/v1` | Backend base URL |
+
+For a different backend URL (e.g. deployed), create `frontend/.env.local`:
+
+```
+VITE_API_URL=https://your-api.example.com/api/v1
+```
+
+---
+
+## AI providers
+
+### Groq (recommended)
+
+**Why Groq:** Uses custom LPU hardware — responses arrive in ~200–700ms vs ~1–3s for other providers. Free tier gives 30 requests per minute (RPM), enough for real usage without hitting limits.
+
+**Setup:**
+1. Create a free account at `console.groq.com`
+2. Generate an API key (starts with `gsk_`)
+3. Add to `backend/.env`: `GROQ_API_KEY=gsk_...`
+4. Set provider: `SHOPMIND_AI_PROVIDER=groq`
+
+**Model options:**
+
+| Model | Speed | Quality | Notes |
+|---|---|---|---|
+| `llama-3.3-70b-versatile` | Fast | Excellent | Default — best conversational quality |
+| `llama3-8b-8192` | Very fast | Good | Use if you need lower latency |
+| `mixtral-8x7b-32768` | Fast | Good | Longer context window |
+
+### Gemini (alternative)
+
+**Setup:**
+1. Get a key at `aistudio.google.com/app/apikey`
+2. Add to `backend/.env`: `GOOGLE_API_KEY=AIza...`
+3. Set provider: `SHOPMIND_AI_PROVIDER=gemini`
+
+**Free tier:** 15 RPM. Can hit limits quickly during active testing.
+
+**Model options:** `gemini-2.0-flash` (default), `gemini-2.0-flash-lite` (higher quota), `gemini-1.5-pro` (smarter but slower).
+
+### Mock (offline / testing)
+
+The default mode when no API key is configured. Uses deterministic keyword matching — no network calls, instant responses (~5ms per message).
+
+The mock engine:
+- Extracts intent by scanning for keywords (`college`, `gym`, `run`, `comfort`, etc.)
+- Asks follow-up questions based on which intent fields are still missing
+- Scores products using comfort priority, use-case tag matching, and budget fit
+- Falls back automatically from Groq/Gemini on any error or rate limit
+
+**To force mock mode:** Set `SHOPMIND_AI_PROVIDER=mock` in `.env`.
+
+---
+
+## How the conversation works
+
+### Per-message flow
+
+```
+User sends message
+        │
+        ▼
+ConversationService.processMessage()
+        │
+        ├── Save user message to DB
+        │
+        ├── Build full conversation history
+        │
+        ├── AiService.extractIntent(history)
+        │     └── Single AI call returns:
+        │           - Structured ExtractedIntent
+        │           - readyToRecommend boolean
+        │           - nextQuestion string
+        │           - confidenceScore (0–1)
+        │           - missingAttributes list
+        │
+        ├── Save intent version to DB
+        │
+        ├── if readyToRecommend:
+        │       ├── ShopifyProductService.searchProducts()
+        │       ├── AiService.rankProducts()  (mock scoring + AI reasoning)
+        │       ├── Save recommendations + regret flags + merchant offers
+        │       └── Return shortlist to frontend
+        │
+        └── else:
+                └── Return nextQuestion to frontend
+```
+
+### Confidence scoring
+
+`confidenceScore = (6 - missingAttributes.length) / 6.0`
+
+The 6 key attributes are: `primaryUseCase`, `walkingDuration`, `budget`, `comfortPriority`, `stylePriority`, `preferredFit`.
+
+Recommendations trigger when confidence ≥ 0.65, all attributes are filled, or the question count hits 8 (hard cap to prevent infinite loops).
+
+### Product scoring (MockAiService)
+
+Each product is scored on:
+
+| Factor | Weight |
+|---|---|
+| Cushioning vs comfort priority | ±0.2 |
+| Use-case tag match | +0.15 |
+| Budget fit | ±0.1 |
+| Style priority | +0.12 × stylePriority |
+| Durability priority | +0.1 × dp × durability% |
+| Versatility tags | ±0.1 |
+| Terrain match | ±0.08–0.1 |
+
+Final score is clamped to [0.30, 0.99]. When a live AI provider is configured, it rewrites the `reasoning`, `tradeoffs`, and `notSuitableFor` text with personalized explanations referencing the user's actual stated needs.
+
+---
+
+## Frontend pages and phases
+
+### Landing page (`/`)
+
+- Hero section with search bar and popular category pills
+- "How it works" section with the 4-stage flow
+- Any form submission or pill click navigates to `/chat`
+
+### Chat page (`/chat`)
+
+The chat page has 4 phases managed by Zustand:
+
+| Phase | Triggered when | What the user sees |
+|---|---|---|
+| `discovery` | Session starts | Conversational chat panel + Decision Intelligence sidebar (fit score, intent summary, explainable fit bars) |
+| `shortlist` | AI returns recommendations | 3 product cards with match score, comfort/durability/style bars, regret flags, price |
+| `compare` | User clicks "Compare all" | Side-by-side table with per-row winner dots |
+| `deepdive` | User taps a product card | Full product detail, retailer table, fit score, match drivers, follow-up ask input |
+
+### State (Zustand — `store/chat.ts`)
+
+| State field | Type | Description |
+|---|---|---|
+| `sessionId` | `string \| null` | Backend session UUID. `'mock-session'` if backend is unreachable. |
+| `messages` | `MessageDTO[]` | Full conversation history |
+| `intent` | `IntentDTO \| null` | Latest extracted intent snapshot |
+| `recommendations` | `RecommendationDTO[]` | Scored shortlist |
+| `phase` | `Phase` | Current UI phase |
+| `compareSet` | `string[]` | IDs of products in the compare view (max 3) |
+| `activeProductId` | `string \| null` | Product open in deep dive |
+| `isLoading` | `boolean` | True while waiting for backend response |
+
+### Offline / mock fallback
+
+If the backend is unreachable, `initSession()` sets `sessionId = 'mock-session'` and `send()` falls back to a built-in context-aware mock that generates responses referencing the user's previous message (e.g. "Campus life — that means long days on your feet…"). After 4 exchanges, it returns a hardcoded shortlist of 3 shoes (Nike Air Zoom Pegasus 41, New Balance Fresh Foam X 1080v14, Brooks Ghost 16).
+
+---
+
+## Backend API reference
+
+Base URL: `http://localhost:8080/api/v1`
+
+### `POST /conversations`
+
+Create a new conversation session.
+
+**Response:**
+```json
 {
-  "sessionId": "550e8400-e29b-41d4-a716-446655440000"
+  "sessionId": "4d240483-c570-4475-9b6f-a28813dbd452"
 }
 ```
 
-### Send a Message
-```http
-POST /api/v1/conversations/{sessionId}/messages
-Content-Type: application/json
+---
 
-Request:
+### `POST /conversations/{sessionId}/messages`
+
+Send a user message and get the AI response.
+
+**Request body:**
+```json
 {
-  "content": "I need shoes for walking around campus, about 6 hours a day"
+  "content": "I need shoes for college"
 }
+```
 
-Response:
+**Response:**
+```json
 {
-  "sessionId": "550e8400-e29b-41d4-a716-446655440000",
+  "sessionId": "4d240483-...",
   "assistantMessage": {
-    "role": "ASSISTANT",
-    "content": "Got it! 6 hours on campus... What's your budget range for shoes?",
-    "reasoningStatus": "CONFIDENCE_GROWING"
+    "id": "c8e52816-...",
+    "role": "assistant",
+    "content": "You mentioned college — how many hours are you on your feet each day?",
+    "reasoningStatus": "Walking duration affects cushioning needs.",
+    "createdAt": null
   },
   "currentIntent": {
-    "primaryUseCase": "college daily wear",
-    "walkingDuration": "6 hours",
+    "primaryUseCase": "college",
+    "walkingDuration": null,
     "budget": null,
-    "comfortPriority": 0.7,
-    "stylePriority": 0.5,
-    "durabilityPriority": 0.6,
+    "comfortPriority": null,
+    "stylePriority": null,
+    "durabilityPriority": null,
     "terrainType": "urban",
     "preferredFit": null,
-    "needsVersatility": true,
-    "confidenceScore": 0.5,
-    "missingAttributes": ["budget", "preferredFit"],
-    "contradictions": []
+    "needsVersatility": null,
+    "confidenceScore": 0.17,
+    "missingAttributes": ["walkingDuration", "budget", "comfortPriority", "stylePriority", "preferredFit"]
   },
-  "recommendations": null,
+  "recommendations": [],
   "debugInfo": {
-    "processingTimeMs": 45,
-    "rawIntentJson": "{...}"
+    "processingTimeMs": 691
   }
 }
 ```
 
-### Get Full Session
-```http
-GET /api/v1/conversations/{sessionId}
+When confidence is high enough, `recommendations` is populated with the shortlist:
 
-Response:
-{
-  "sessionId": "...",
-  "status": "ACTIVE",
-  "confidenceScore": 0.8,
-  "questionCount": 3,
-  "recommendationsGenerated": true,
-  "messages": [...],
-  "currentIntent": {...},
-  "recommendations": [
-    {
-      "productId": "gid://shopify/Product/123",
-      "productName": "Nike Air Zoom Pegasus 41",
-      "productBrand": "Nike",
-      "productImageUrl": "https://...",
-      "price": 130.0,
-      "currency": "USD",
-      "matchScore": 0.87,
-      "comfortScore": 85,
-      "durabilityScore": 82,
-      "styleScore": 78,
-      "reasoning": "Excellent cushioning for 6-hour days with campus style. Trusted brand.",
-      "tradeoffs": "Slightly heavier than minimalist shoes | Not ideal for trails",
-      "notSuitableFor": "Ultralight runners, trail hikers",
-      "regretFlags": [
-        {
-          "type": "WEIGHT",
-          "title": "Moderate weight",
-          "description": "Slightly heavy for 6+ hour wear, but manageable with cushioning",
-          "severity": "LOW"
-        }
-      ],
-      "merchants": [
-        {
-          "name": "Shopify Direct",
-          "price": 130.0,
-          "currency": "USD",
-          "deliveryEstimate": "2-3 business days",
-          "returnPolicy": "30-day returns",
-          "shippingCost": 0.0,
-          "inStock": true,
-          "checkoutUrl": "https://...",
-          "bestValue": true,
-          "whyRecommended": "Official store, best price + free shipping"
-        }
-      ],
-      "rank": 1
-    },
-    {...},
-    {...}
-  ],
-  "createdAt": "2026-05-15T10:30:00Z"
-}
+```json
+"recommendations": [
+  {
+    "id": "...",
+    "productId": "nike-001",
+    "productName": "Air Zoom Pegasus 41",
+    "productBrand": "Nike",
+    "productImageUrl": "...",
+    "matchScore": 0.87,
+    "comfortScore": 88,
+    "durabilityScore": 85,
+    "styleScore": 82,
+    "reasoning": "ReactX foam handles 6-8 hour college days...",
+    "tradeoffs": "Athletic silhouette — reads less casual than lifestyle sneakers.",
+    "notSuitableFor": "Formal or business-casual outfits.",
+    "price": 10799.0,
+    "currency": "INR",
+    "rank": 1,
+    "regretFlags": [
+      {
+        "type": "WEIGHT",
+        "title": "Heavier than minimalist trainers",
+        "description": "280g — noticeably bulkier than ultra-lights.",
+        "severity": "LOW"
+      }
+    ],
+    "merchantOffers": [
+      {
+        "merchantName": "Nike India",
+        "price": 10799.0,
+        "currency": "INR",
+        "deliveryEstimate": "2–3 days",
+        "returnPolicy": "30-day free returns",
+        "shippingCost": 0.0,
+        "inStock": true,
+        "checkoutUrl": "...",
+        "bestValue": true,
+        "whyRecommended": "Official Nike India store — best price + free shipping."
+      }
+    ]
+  }
+]
 ```
 
 ---
 
-## ⚙️ Configuration
+### `GET /conversations/{sessionId}`
 
-### `application.properties` (Backend)
+Retrieve a full session including all messages, latest intent, and recommendations.
 
+**Response:** `SessionResponse` — same shape as the message response but includes the full `messages` array and `createdAt` timestamps.
+
+---
+
+## Key backend services
+
+### `ConversationService`
+
+Orchestrates the per-message pipeline: saves messages, calls the AI, saves intent versions, triggers product ranking when ready, and builds the response DTO.
+
+### `GroqAiService` / `GeminiAiService`
+
+Both implement `AiService` with three methods:
+
+| Method | What it does |
+|---|---|
+| `extractIntent(history)` | Sends full conversation to AI, returns structured `ExtractedIntent`. Also caches the question decision in a `ThreadLocal` to avoid a second API call. |
+| `decideNextQuestion(intent, count)` | Returns the cached question decision from `extractIntent` — zero extra API calls. |
+| `rankProducts(products, intent)` | Runs `MockAiService.rankProducts()` for numeric scores, then calls AI to rewrite `reasoning`, `tradeoffs`, and `notSuitableFor` with personalized text. |
+
+Both services retry up to 3 times with exponential backoff (2s, 4s) on `429 Too Many Requests` before falling back to mock.
+
+### `MockAiService`
+
+Deterministic fallback. No network calls. Used when:
+- No API key is configured
+- Provider is explicitly set to `mock`
+- A live AI call fails after retries
+
+### `MockProductService`
+
+Loads 51 Nike products from `nike_products.csv` at startup. Each product has: title, brand, price, product type, tags, and attributes (cushioning, terrain, weight, material). Used when `SHOPIFY_STOREFRONT_TOKEN=mock` (the default).
+
+### `ShopifyProductService`
+
+Queries the Shopify Storefront GraphQL API for live products. Activated when a real `SHOPIFY_STOREFRONT_TOKEN` is provided.
+
+---
+
+## Database
+
+Dev uses **H2 in-memory** — no setup needed. Data resets on every restart.
+
+**Entities:**
+
+| Table | Description |
+|---|---|
+| `conversation_sessions` | One row per chat session. Tracks question count, confidence score, and whether recommendations have been generated. |
+| `conversation_messages` | All messages (role: USER or ASSISTANT) for a session, in order. |
+| `user_intents` | Versioned intent snapshots — one row per message turn. |
+| `recommendations` | Saved product recommendations for a session. |
+| `regret_flags` | Warnings attached to recommendations (type, severity, description). |
+| `merchant_offers` | Retailer options attached to a recommendation (price, delivery, returns). |
+| `product_snapshots` | Optional product data cache. |
+
+**To switch to PostgreSQL** for production, add to `.env`:
+
+```
+SPRING_DATASOURCE_URL=jdbc:postgresql://localhost:5432/shopmind
+SPRING_DATASOURCE_USERNAME=shopmind
+SPRING_DATASOURCE_PASSWORD=yourpassword
+```
+
+And update `application.properties`:
 ```properties
-# Server
-server.port=8080
-
-# Database (H2 dev, PostgreSQL prod)
-spring.datasource.url=jdbc:h2:mem:shopmind
-spring.datasource.driverClassName=org.h2.Driver
-spring.h2.console.enabled=true
-spring.jpa.database-platform=org.hibernate.dialect.H2Dialect
-spring.jpa.hibernate.ddl-auto=update
-
-# CORS
-shopmind.cors.allowed-origins=http://localhost:3000
-
-# Product Caching
-shopmind.cache.product-ttl=1800
-shopmind.cache.session-ttl=86400
-shopmind.cache.recommendation-ttl=3600
-
-# AI Mode (use mock for development, real for production)
-shopmind.ai.mock-mode=true
-
-# Shopify (optional)
-shopify.store-domain=${SHOPIFY_STORE_DOMAIN:demo-shoes.myshopify.com}
-shopify.storefront-token=${SHOPIFY_STOREFRONT_TOKEN:mock}
-shopify.api-version=2026-04
-
-# Anthropic Claude (optional, requires API key)
-shopmind.ai.anthropic-api-key=${ANTHROPIC_API_KEY:}
-shopmind.ai.claude-model=${CLAUDE_MODEL:claude-haiku-4-5-20251001}
-```
-
-### `.env.local` (Frontend)
-
-```env
-VITE_API_URL=http://localhost:8080/api/v1
+spring.jpa.hibernate.ddl-auto=validate
+spring.jpa.properties.hibernate.dialect=org.hibernate.dialect.PostgreSQLDialect
 ```
 
 ---
 
-## 🤖 AI Modes
+## Product catalog
 
-### Mock Mode (Default)
-- **Keyword-based intent extraction** — parses user messages for tags
-- **Deterministic scoring** — consistent results (no randomness)
-- **Hardcoded products** — 10 test shoes with fake prices
-- **No API calls** — instant responses, zero cost
-- **Perfect for:** Local development, testing, CI/CD
+The default catalog is `backend/src/main/resources/nike_products.csv` — 51 products loaded at startup by `MockProductService`.
 
-**Enable:** `shopmind.ai.mock-mode=true` (default)
+CSV columns: `id`, `title`, `brand`, `productType`, `minPrice`, `tags`, `images`, `attributes`
 
-### Real AI Mode
-- **Anthropic Claude** — natural language understanding
-- **Shopify Storefront API** — live product catalog + real prices
-- **Hybrid scoring** — Claude enriches reasoning; mock handles numeric consistency
-- **Graceful fallback** — any API error falls back to mock
-- **Configurable:** Haiku (cheap), Sonnet (smarter), Opus (slowest/best)
+**Attributes** is a JSON object embedded in the CSV. Recognized keys:
 
-**Enable:** 
+| Key | Example values | Used for |
+|---|---|---|
+| `cushioning` | `low`, `moderate`, `high`, `ultra-high`, `maximum` | Comfort scoring |
+| `terrain` | `urban`, `road`, `trail`, `off-road` | Terrain matching |
+| `weight` | `280g` | Long-wear regret flag |
+| `material` | `leather`, `mesh`, `knit` | Durability scoring |
+
+To replace the catalog with live Shopify data, set `SHOPIFY_STOREFRONT_TOKEN` to a real token starting with `shpat_`.
+
+---
+
+## Running in production
+
+1. Build the frontend:
+   ```bash
+   cd frontend && npm run build
+   # Output in frontend/dist/
+   ```
+
+2. Serve `dist/` from any static host (Vercel, Netlify, S3+CloudFront, Nginx).
+
+3. Set `VITE_API_URL` to your deployed backend URL before building:
+   ```
+   VITE_API_URL=https://api.yourdomain.com/api/v1
+   ```
+
+4. Build and run the backend JAR:
+   ```bash
+   cd backend
+   mvn package -DskipTests
+   java -jar target/shopmind-backend-1.0.0.jar \
+     --shopmind.ai.provider=groq \
+     --shopmind.ai.groq-api-key=gsk_...
+   ```
+
+5. Set `CORS_ORIGINS` to your frontend URL:
+   ```
+   CORS_ORIGINS=https://yourdomain.com
+   ```
+
+---
+
+## Troubleshooting
+
+### Backend starts but chat still uses mock responses
+
+**Symptom:** `processingTimeMs` in the API response is under 50ms.
+
+**Cause:** The env vars weren't loaded, so the backend defaulted to `mock` mode.
+
+**Fix:** The `spring-dotenv` dependency in `pom.xml` loads `backend/.env` automatically. If you added the dependency recently, run `mvn spring-boot:run` fresh (not from a cached build). Verify the provider is set:
 ```bash
-export shopmind.ai.mock-mode=false
-export ANTHROPIC_API_KEY=sk-ant-...
-export SHOPIFY_STORE_DOMAIN=your-store.myshopify.com
-export SHOPIFY_STOREFRONT_TOKEN=your-token
-mvn spring-boot:run
-```
-
----
-
-## 📊 Current Product Catalog (Mock)
-
-10 hardcoded shoes for development testing:
-
-| Brand | Model | Type | Price | Cushioning |
-|---|---|---|---|---|
-| Nike | Air Zoom Pegasus 41 | Running | $130 | High |
-| Adidas | Ultraboost Light | Running/Lifestyle | $190 | Ultra-high |
-| New Balance | Fresh Foam X 1080v14 | Running | $160 | Maximum |
-| Brooks | Ghost 16 | Running | $140 | High |
-| ASICS | Gel-Nimbus 26 | Running | $160 | Ultra-high |
-| Nike | Air Force 1 '07 | Casual/Sneaker | $110 | Moderate |
-| Puma | RS-X Reinvention | Casual/Sneaker | $85 | Moderate |
-| Skechers | Go Walk 7 | Walking | $75 | High |
-| Nike | React Infinity Run 4 | Running | $160 | High |
-| Allbirds | Tree Runners | Casual/Lifestyle | $98 | Moderate |
-
----
-
-## 🔄 Conversation Flow
-
-```
-User: "I need shoes for walking around campus..."
-  ↓
-[1] Extract Intent → primaryUseCase=college, walkingDuration=?, budget=?, ...
-[2] Check Confidence → missing attributes → pick next question
-[3] Repeat until: confidence ≥ 0.65 OR attributes filled
-  ↓
-User: (5+ messages with sufficient context)
-  ↓
-[4] Rank Products → score all shoes against intent
-[5] Generate Reasoning → why each shoe matches (Claude or template)
-[6] Fetch Merchant Offers → real Shopify prices + availability
-[7] Return Top 3 Recommendations
-  ↓
-Response: "Here are 3 shoes perfect for your 6-hour campus walks..."
-```
-
----
-
-## 🎨 Frontend Features
-
-### Landing Page (`/`)
-- Hero section with feature highlights
-- Call-to-action button linking to `/chat`
-- Marketing copy explaining the service
-
-### Chat Page (`/chat`)
-- **Left Panel:** Conversation transcript with message history
-- **Right Panel:** 
-  - Live intent model display (extracted attributes + confidence score)
-  - Recommendation cards (when ready) with match scores, pricing, merchants
-  - "Product Deep Dive" modal for detailed shoe info
-- **Debug Toggle:** View raw intent JSON + processing time
-- **State Management:** Zustand (lightweight, performant)
-
-### UI Libraries
-- **Tailwind CSS 4** — utility-first styling
-- **Framer Motion** — smooth animations
-- **Lucide Icons** — minimal icon set
-- **Axios** — HTTP client
-
----
-
-## 🧪 Testing
-
-### Backend Unit Tests
-```bash
-cd backend
-mvn test
-
-# Specific test
-mvn test -Dtest=MockAiServiceTest
-```
-
-### Manual Testing
-
-**1. Test Mock Mode (default)**
-```bash
-# Terminal 1
-cd backend && mvn spring-boot:run
-
-# Terminal 2
-curl -X POST http://localhost:8080/api/v1/conversations \
+curl -s -X POST http://localhost:8080/api/v1/conversations/test-session-id/messages \
   -H "Content-Type: application/json" \
-  -d '{}' | jq .sessionId
-
-# Terminal 3
-curl -X POST http://localhost:8080/api/v1/conversations/{SESSION_ID}/messages \
-  -H "Content-Type: application/json" \
-  -d '{"content": "I need shoes for running"}'
+  -d '{"content":"test"}' | grep processingTimeMs
+# > 200ms means Groq is active
 ```
 
-**2. Test Real Shopify + Claude**
-```bash
-# With env vars set
-export ANTHROPIC_API_KEY=sk-ant-...
-export SHOPIFY_STOREFRONT_TOKEN=shpat_...
+### `429 Too Many Requests` from Groq
 
-mvn spring-boot:run
-# Then repeat curl tests above
+The service retries automatically (2s, 4s backoff) and falls back to mock if still rate-limited. On the free tier:
+- Groq allows 30 RPM — enough for ~15 messages/min
+- If you need more, upgrade to a paid Groq plan or switch to `llama3-8b-8192` which has higher free limits
+
+### Frontend shows "Start chatting" but never gets a response
+
+**Cause:** Backend is unreachable or CORS is blocking the request.
+
+**Fix:**
+1. Check the backend is running: `curl http://localhost:8080/api/v1/conversations -X POST`
+2. Check `CORS_ORIGINS` in `backend/.env` includes `http://localhost:3000`
+3. Check `VITE_API_URL` in `frontend/.env` points to the correct backend address
+
+### H2 console access
+
+Enable in `.env`:
 ```
-
-**3. Frontend Testing**
-```bash
-cd frontend && npm run dev
-# Navigate to http://localhost:3000
-# Test full conversation flow, verify recommendations display
+H2_CONSOLE_ENABLED=true
 ```
+Then visit `http://localhost:8080/h2-console` — JDBC URL: `jdbc:h2:mem:shopmind`, user: `sa`, no password.
 
----
+### Port 8080 already in use
 
-## 📦 Dependencies
-
-### Backend (pom.xml)
-| Dependency | Purpose |
-|---|---|
-| `spring-boot-starter-web` | REST API |
-| `spring-boot-starter-data-jpa` | Database ORM |
-| `spring-boot-starter-validation` | Bean validation |
-| `spring-boot-starter-webflux` | WebClient for async HTTP |
-| `h2` | In-memory dev database |
-| `postgresql` | Production database |
-| `lombok` | Boilerplate reduction (@Data, @Builder) |
-| `mapstruct` | Type-safe bean mapping |
-| `jackson-databind` | JSON serialization |
-| `com.anthropic:sdk` (planned) | Claude API client |
-
-### Frontend (package.json)
-| Package | Purpose |
-|---|---|
-| `vite` | Build tool + dev server |
-| `@vitejs/plugin-react` | React Fast Refresh + JSX transform |
-| `react-router-dom` | Client-side routing |
-| `@tailwindcss/vite` | Tailwind v4 Vite plugin |
-| `react` | UI library |
-| `tailwindcss` | CSS framework |
-| `zustand` | State management |
-| `axios` | HTTP client |
-| `framer-motion` | Animations |
-| `lucide-react` | Icons |
-
----
-
-## 🚢 Deployment
-
-### Local Development
-```bash
-# Terminal 1: Backend (port 8080)
-cd backend && mvn spring-boot:run
-
-# Terminal 2: Frontend (port 3000)
-cd frontend && npm run dev
+```powershell
+# Find the process
+netstat -ano | findstr :8080
+# Kill it (replace PID)
+Stop-Process -Id <PID> -Force
 ```
-
-### Docker (Recommended for Staging/Prod)
-
-**Backend Dockerfile** (add to `backend/`):
-```dockerfile
-FROM openjdk:21-jdk-slim
-COPY target/shopmind-backend-1.0.0.jar app.jar
-ENTRYPOINT ["java", "-jar", "app.jar"]
-```
-
-**Frontend Dockerfile** (add to `frontend/`):
-```dockerfile
-FROM node:20-alpine as builder
-COPY . .
-RUN npm install && npm run build
-
-FROM node:20-alpine
-COPY --from=builder dist ./dist
-ENTRYPOINT ["npx", "vite", "preview", "--host", "0.0.0.0", "--port", "3000"]
-```
-
-**docker-compose.yml** (add to root):
-```yaml
-version: '3.8'
-services:
-  backend:
-    build: ./backend
-    ports:
-      - "8080:8080"
-    environment:
-      SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/shopmind
-      SHOPIFY_STORE_DOMAIN: ${SHOPIFY_STORE_DOMAIN}
-      SHOPIFY_STOREFRONT_TOKEN: ${SHOPIFY_STOREFRONT_TOKEN}
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
-
-  frontend:
-    build: ./frontend
-    ports:
-      - "3000:3000"
-    environment:
-      VITE_API_URL: http://localhost:8080/api/v1
-
-  db:
-    image: postgres:16
-    environment:
-      POSTGRES_DB: shopmind
-      POSTGRES_PASSWORD: shopmind-dev
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-
-volumes:
-  pgdata:
-```
-
-```bash
-# Build and run
-docker-compose up --build
-```
-
-### VPS/Cloud Deployment (AWS EC2, DigitalOcean, etc.)
-1. **Minimal requirements:** 1GB RAM, 1 vCPU
-2. **Use PostgreSQL** (not H2) for persistence
-3. **Set environment variables** for Shopify + Anthropic
-4. **Configure CORS** to match your domain
-5. **Use SSL/TLS** (Let's Encrypt)
-6. **Monitor** Claude API costs (Haiku is cheap)
-
----
-
-## 🔐 Security
-
-### Current Safeguards
-- ✅ CORS configured for specific origins
-- ✅ Input validation on all API requests (`@NotBlank`, `@Valid`)
-- ✅ Exception handling prevents stack trace leaks
-- ✅ No SQL injection (JPA parameterized queries)
-- ✅ No hardcoded secrets (uses `${ENV_VAR:fallback}`)
-
-### TODO Before Production
-- [ ] Add JWT authentication (or OAuth 2.0)
-- [ ] Rate limiting on conversation endpoints
-- [ ] SQL injection prevention audit
-- [ ] XSS protection in frontend (add a CSP meta tag in `index.html`)
-- [ ] Anthropic API key rotation strategy
-- [ ] Shopify token vault (AWS Secrets Manager, HashiCorp Vault)
-- [ ] HTTPS only
-- [ ] Add request logging + audit trail
-
----
-
-## 📈 Performance
-
-### Resource Usage (Observed)
-| Metric | Value |
-|---|---|
-| Backend Startup | 5-10 seconds |
-| Backend Memory | 200-300 MB base + conversation heap |
-| Frontend Bundle | ~500 KB gzipped |
-| API Response Time | 50-200 ms (mock), 200-500 ms (Claude) |
-| Shopify API Latency | 200-400 ms |
-| Database Size | ~10 MB per 10k conversations |
-
-### Optimization Tips
-- **Enable caching** → Uncomment Redis in `pom.xml`, wire in `config/RedisConfig.java`
-- **Batch Shopify requests** → Fetch all products once per 30 min
-- **Use connection pooling** → HikariCP (default in Spring Boot)
-- **Frontend code splitting** → Vite splits dynamic `import()` boundaries automatically; add route-level lazy imports for further gains
-- **CDN for images** → Serve product images via Cloudflare/CloudFront
-
----
-
-## 🐛 Troubleshooting
-
-### Backend Won't Start
-```bash
-# Check Java version
-java -version  # Should be 21+
-
-# Clear Maven cache
-mvn clean
-
-# Run with debug output
-mvn spring-boot:run -X
-```
-
-### Frontend Can't Reach Backend
-```bash
-# Check CORS config in application.properties
-# Verify VITE_API_URL in .env.local
-
-# Test API directly
-curl http://localhost:8080/api/v1/conversations
-```
-
-### Shopify API Errors
-```bash
-# Verify credentials
-echo $SHOPIFY_STORE_DOMAIN
-echo $SHOPIFY_STOREFRONT_TOKEN
-
-# Check GraphQL syntax at Shopify Admin > Apps > GraphQL
-# Verify token has "storefront" scope (not admin)
-```
-
-### Claude Not Working
-```bash
-# Verify API key
-echo $ANTHROPIC_API_KEY | head -c 20
-
-# Check logs for "falling back to mock"
-# Claude errors are logged but don't crash the app
-```
-
----
-
-## 🗓️ Roadmap
-
-### Phase 1 (Current MVP)
-- ✅ Conversational intent extraction (keyword matching)
-- ✅ Shoe ranking against intent
-- ✅ Regret flag detection
-- ✅ Mock product catalog
-- ✅ REST API + React UI
-
-### Phase 2 (Planned - See `PLAN.md`)
-- 🔄 **Shopify Live Integration** — Real product prices + inventory
-- 🔄 **Anthropic Claude AI** — Natural language understanding + reasoning
-- 🔄 **ProductSnapshot Caching** — 30-min TTL for Shopify products
-- 🔄 **Scoring Fixes** — Use all extracted intent attributes (stylePriority, durabilityPriority, etc.)
-
-### Phase 3 (Future)
-- [ ] User accounts + saved preferences
-- [ ] Order history + feedback loop
-- [ ] Mobile app (React Native)
-- [ ] Multi-language support
-- [ ] Competitor price comparison (Amazon, Foot Locker, etc.)
-- [ ] Size recommendation engine
-- [ ] Sustainability metrics
-- [ ] Recommendation analytics + A/B testing
-
----
-
-## 📚 Documentation
-
-- **[PLAN.md](PLAN.md)** — Detailed implementation roadmap (5 work streams, 10 files)
-- **[API.md](docs/API.md)** — Full OpenAPI/Swagger specification (optional)
-- **Architecture Diagram** — See `.claude/diagrams/` (optional)
-
----
-
-## 🤝 Contributing
-
-1. Fork the repo
-2. Create a feature branch (`git checkout -b feature/my-feature`)
-3. Make changes (both backend + frontend)
-4. Run tests: `mvn test` (backend), `npm test` (frontend)
-5. Commit with clear messages
-6. Push and open a PR
-
----
-
-## 📄 License
-
-MIT License — See LICENSE.md
-
----
-
-## 📞 Support
-
-- **Issues:** GitHub Issues
-- **Email:** [your-email@example.com]
-- **Docs:** See README.md (this file) + PLAN.md + code comments
-
----
-
-## 🎓 Learn More
-
-### Spring Boot
-- [Spring Boot Docs](https://spring.io/projects/spring-boot)
-- [Spring Data JPA](https://spring.io/projects/spring-data-jpa)
-- [Building REST APIs](https://spring.io/guides/gs/rest-service/)
-
-### Vite + React Router
-- [Vite Docs](https://vite.dev/)
-- [React Router Docs](https://reactrouter.com/)
-- [React 19](https://react.dev)
-- [Tailwind CSS](https://tailwindcss.com)
-
-### Shopify
-- [Storefront GraphQL API](https://shopify.dev/docs/api/storefront-graphql)
-- [API Authentication](https://shopify.dev/docs/api/storefront-graphql/2026-04)
-
-### Anthropic Claude
-- [Claude API Docs](https://docs.anthropic.com)
-- [Java SDK](https://github.com/anthropics/anthropic-sdk-java)
-
----
-
-**Built with ❤️ by ShopMind Team**  
-Last updated: 2026-05-15

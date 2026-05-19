@@ -114,7 +114,7 @@ public class MockProductService {
                 .filter(t -> !t.isBlank())
                 .collect(Collectors.toList());
 
-            Map<String, Object> attrs = inferAttributes(type == null ? "" : type, tagList, weightG);
+            Map<String, Object> attrs = inferAttributes(type == null ? "" : type, tagList, weightG, title == null ? "" : title);
 
             String img = imageUrl != null && !imageUrl.isBlank() ? imageUrl
                 : "https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=1200&q=80";
@@ -136,8 +136,16 @@ public class MockProductService {
                 .build();
         }
 
-        private static Map<String, Object> inferAttributes(String type, List<String> tags, int weightG) {
+        private static Map<String, Object> inferAttributes(String type, List<String> tags, int weightG, String title) {
             Map<String, Object> a = new HashMap<>();
+
+            // Gender — check title and tags for explicit gender keywords
+            String combined = (title + " " + String.join(" ", tags)).toLowerCase();
+            boolean isFemale = combined.contains("women") || combined.contains("wmns")
+                || combined.contains("woman") || combined.contains("ladies") || combined.contains("girl");
+            boolean isMale   = !isFemale && (combined.contains(" men") || combined.contains("mens")
+                || combined.contains("men's") || combined.contains("gents"));
+            a.put("gender", isFemale ? "female" : isMale ? "male" : "unisex");
 
             // Cushioning from type
             String t = type.toLowerCase();

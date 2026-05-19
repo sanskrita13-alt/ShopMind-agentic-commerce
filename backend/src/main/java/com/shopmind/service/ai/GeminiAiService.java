@@ -43,6 +43,7 @@ public class GeminiAiService implements AiService {
         Respond with a single JSON object:
         {
           "primaryUseCase": "string or null",
+          "gender": "male | female | unisex | null",
           "walkingDuration": "string or null",
           "budget": "number or null",
           "comfortPriority": "number 0-1 or null",
@@ -60,14 +61,23 @@ public class GeminiAiService implements AiService {
         }
 
         Rules:
-        - Key attributes: primaryUseCase, walkingDuration, budget, comfortPriority, stylePriority, preferredFit.
-        - confidenceScore = (6 - missingAttributes.length) / 6.0, rounded to 2 decimals.
+        - Key attributes (7 total): primaryUseCase, gender, walkingDuration, budget, comfortPriority, stylePriority, preferredFit.
+        - confidenceScore = (7 - missingAttributes.length) / 7.0, rounded to 2 decimals.
         - readyToRecommend = true when confidenceScore >= 0.65 OR missingAttributes is empty.
+        - Ask about gender early — after primaryUseCase. Accept "men's", "women's", "for my girlfriend", "I'm a guy", etc.
+          Infer from context: "shopping for my wife" → female, "for myself" + male pronouns → male.
         - nextQuestion must feel natural and conversational — reference what the user already told you.
         - Ask about one attribute at a time. Priority: primaryUseCase > walkingDuration > budget > comfortPriority.
-        - Never ask about an attribute already in the intent.
-        - If the user declined to give a budget, drop "budget" from missingAttributes.
-        - Prices are in INR (Indian Rupees).
+        - NEVER repeat the same question verbatim. If the user's answer was too vague to extract a value,
+          you MAY ask one follow-up clarification — but you MUST acknowledge what they said and ask a
+          targeted follow-up phrased differently.
+          Good: user says "sometimes" to hours → "Got it — on a typical day, closer to 2-3 hours or more like 5-6+?"
+          Bad: user says "sometimes" → "How many hours are you typically on your feet each day?" (verbatim repeat)
+        - Accept natural language directional answers without follow-up:
+          "a few hours" = 2-3h, "most of the day" = 6-8h, "around 10k" = ₹10000,
+          "I care about looks" = high stylePriority, "comfort matters most" = high comfortPriority.
+        - If the user declined to give a budget or said it doesn't matter, drop "budget" from missingAttributes.
+        - Prices are in INR (Indian Rupees). "10k" means ₹10,000.
         """;
 
     private static final String REASONING_SYSTEM_PROMPT = """
