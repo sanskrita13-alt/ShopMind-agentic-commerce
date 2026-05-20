@@ -390,7 +390,8 @@ public class MockAiService implements AiService {
                 score += 0.1;
             } else {
                 score -= 0.1;
-                tradeoffList.add("Above your stated budget of $" + intent.getBudget().intValue());
+                String currencySymbol = "INR".equalsIgnoreCase(product.getCurrency()) ? "₹" : "$";
+                tradeoffList.add("Above your stated budget of " + currencySymbol + intent.getBudget().intValue());
             }
         }
 

@@ -70,7 +70,7 @@ export default function LandingPage() {
           {/* Right — hero image with tooltips */}
           <div className="cp-welcome-right">
             <div className="cp-welcome-stage">
-              <img src={SHOE_IMAGE} alt="Featured shoe" referrerPolicy="no-referrer" />
+              <img src={SHOE_IMAGE} alt="Featured shoe" referrerPolicy="strict-origin-when-cross-origin" />
             </div>
 
             <div className="cp-tooltip cp-tooltip--a">

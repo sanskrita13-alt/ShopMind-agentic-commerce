@@ -117,14 +117,47 @@ public class ConversationService {
             // Step 3: Retrieve and rank products
             reasoningStatus = "Analyzing your requirements and matching products…";
 
-            // Pre-filter the catalog by use case + tags with a 20% budget tolerance, then fall back
-            // to the full catalog if the filter is too tight to surface 3 candidates.
             List<String> useCaseTags = deriveTagsFromIntent(intent);
-            Double budgetWithTolerance = intent.getBudget() != null ? intent.getBudget() * 1.2 : null;
-            var products = productService.searchProducts(intent.getPrimaryUseCase(), budgetWithTolerance, useCaseTags);
-            if (products.size() < 3) {
-                products = productService.getAllProducts();
+            Double strictBudget = intent.getBudget();
+            var products = productService.searchProducts(intent.getPrimaryUseCase(), strictBudget, useCaseTags);
+
+            // If the tag-filtered list is empty (but budget is not the blocker), widen to full catalog
+            // under the same strict budget ceiling — never exceed the user's stated budget.
+            if (products.isEmpty()) {
+                products = productService.searchProducts(null, strictBudget, null);
             }
+
+            // Still empty → nothing in the catalog fits the budget; tell the user clearly.
+            if (products.isEmpty() && strictBudget != null) {
+                String budgetStr = "₹" + strictBudget.intValue();
+                assistantContent = "Hmm, I searched the full catalog and couldn't find any shoes under " + budgetStr
+                    + " that match your needs. You may want to revise your budget — let me know if you'd like to explore options at a higher price point.";
+                reasoningStatus = "No products found within budget";
+
+                var assistantMsg = ConversationMessage.builder()
+                    .session(session)
+                    .role(ConversationMessage.MessageRole.ASSISTANT)
+                    .content(assistantContent)
+                    .reasoningStatus(reasoningStatus)
+                    .build();
+                messageRepo.save(assistantMsg);
+                sessionRepo.save(session);
+
+                long processingTime = System.currentTimeMillis() - startTime;
+                return ConversationResponse.builder()
+                    .sessionId(sessionId.toString())
+                    .assistantMessage(MessageDTO.builder()
+                        .id(assistantMsg.getId() != null ? assistantMsg.getId().toString() : UUID.randomUUID().toString())
+                        .role("assistant")
+                        .content(assistantContent)
+                        .reasoningStatus(reasoningStatus)
+                        .build())
+                    .currentIntent(toIntentDTO(intent))
+                    .recommendations(List.of())
+                    .debugInfo(DebugInfo.builder().processingTimeMs(processingTime).build())
+                    .build();
+            }
+
             var ranked = aiService.rankProducts(products, intent);
 
             // Save recommendations
@@ -132,6 +165,15 @@ public class ConversationService {
             for (int i = 0; i < ranked.size(); i++) {
                 var match = ranked.get(i);
                 var merchants = productService.getMerchantOffers(match.getProductId());
+
+                final String productId = match.getProductId();
+                var matchedProduct = products.stream()
+                    .filter(p -> p.getId().equals(productId))
+                    .findFirst()
+                    .orElseGet(() -> productService.getProduct(productId).orElse(null));
+                String currency = (matchedProduct != null && matchedProduct.getCurrency() != null)
+                    ? matchedProduct.getCurrency()
+                    : "USD";
 
                 var rec = Recommendation.builder()
                     .session(session)
@@ -147,7 +189,7 @@ public class ConversationService {
                     .tradeoffs(match.getTradeoffs())
                     .notSuitableFor(match.getNotSuitableFor())
                     .price(match.getPrice())
-                    .currency("USD")
+                    .currency(currency)
                     .rank(i + 1)
                     .build();
 
@@ -168,7 +210,7 @@ public class ConversationService {
                         .recommendation(rec)
                         .merchantName(m.getName())
                         .price(m.getPrice())
-                        .currency("USD")
+                        .currency(currency)
                         .deliveryEstimate(m.getDelivery())
                         .returnPolicy(m.getReturnPolicy())
                         .shippingCost(m.getShipping())
@@ -297,7 +339,12 @@ public class ConversationService {
         if (intent.getBudget() != null) {
             sb.append(" ₹").append(intent.getBudget().intValue()).append(" budget —");
         }
-        sb.append(" here are ").append(matches.size()).append(" options I'd actually stand behind.\n\n");
+        sb.append(" here are ").append(matches.size()).append(" option")
+          .append(matches.size() != 1 ? "s" : "").append(" I'd actually stand behind");
+        if (intent.getBudget() != null) {
+            sb.append(", all within your ₹").append(intent.getBudget().intValue()).append(" budget");
+        }
+        sb.append(".\n\n");
         sb.append("I've ranked them by how well they fit your stated priorities. ");
         sb.append("Tap any card for my full reasoning, tradeoffs, and where to buy.");
         return sb.toString();

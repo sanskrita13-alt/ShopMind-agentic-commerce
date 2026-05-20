@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
-import { useChatStore, type Phase, type NavTab, PHASE_TO_TAB } from "@/store/chat";
+import { useChatStore, type NavTab } from "@/store/chat";
 import type { RecommendationDTO } from "@/lib/types";
 
 /* ── Inline SVG helpers ── */
@@ -226,7 +226,7 @@ function StageDiscovery({ onShortlist: _onShortlist }: { onShortlist: () => void
    STAGE: SHORTLIST
    ══════════════════════════════════════════════════════════════════ */
 function StageShortlist() {
-  const { recommendations, intent, compareSet, toggleCompare, setPhase, setActiveProduct } = useChatStore();
+  const { recommendations, compareSet, toggleCompare, setPhase, setActiveProduct } = useChatStore();
 
   function openDeepDive(rec: RecommendationDTO) { setActiveProduct(rec.id); setPhase("deepdive"); }
 
@@ -255,7 +255,7 @@ function StageShortlist() {
         {recommendations.map((rec, i) => (
           <article key={rec.id} className="cp-rec" onClick={() => openDeepDive(rec)}>
             <div className="cp-rec-media">
-              {rec.productImageUrl && <img src={rec.productImageUrl} alt={rec.productName} referrerPolicy="no-referrer" />}
+              {rec.productImageUrl && <img src={rec.productImageUrl} alt={rec.productName} referrerPolicy="strict-origin-when-cross-origin" />}
               <span className="cp-rec-fit">{Math.round(rec.matchScore * 100)}% Match</span>
               <div className="cp-rec-rank">{rec.rank}</div>
             </div>
@@ -339,16 +339,6 @@ function StageCompare() {
     return w;
   }, [comparing]);
 
-  function CmpRow({ k, v, suffix, winKey }: { k: string; v: string | number; suffix?: string; winKey?: string }) {
-    const win = winKey ? winners[winKey] === comparing.findIndex(r => true) : false;
-    return (
-      <div className="cp-cmp-table-row">
-        <div className="cp-cmp-table-k">{k}</div>
-        <div className="cp-cmp-table-v">{v}{suffix && <small>{suffix}</small>}</div>
-      </div>
-    );
-  }
-
   return (
     <section className="cp-stage">
       <header className="cp-sechead">
@@ -368,7 +358,7 @@ function StageCompare() {
         {comparing.map((rec, i) => (
           <article key={rec.id} className={`cp-cmp${i === winners.matchScore ? " is-hero" : ""}`}>
             <div className="cp-cmp-media">
-              {rec.productImageUrl && <img src={rec.productImageUrl} alt={rec.productName} referrerPolicy="no-referrer" />}
+              {rec.productImageUrl && <img src={rec.productImageUrl} alt={rec.productName} referrerPolicy="strict-origin-when-cross-origin" />}
               <div className="cp-cmp-tags">
                 {i === winners.matchScore && <span className="cp-pill">Top match</span>}
                 {i === winners.comfortScore && i !== winners.matchScore && <span className="cp-pill cp-pill--blue">Comfort lead</span>}
@@ -448,7 +438,7 @@ function StageCompare() {
    STAGE: DEEP DIVE / ARCHIVE
    ══════════════════════════════════════════════════════════════════ */
 function StageDeepDive() {
-  const { recommendations, activeProductId, setActiveProduct, setPhase, intent, messages } = useChatStore();
+  const { recommendations, activeProductId, setActiveProduct, setPhase, messages } = useChatStore();
   const [askInput, setAskInput] = useState("");
   const activeRec = recommendations.find(r => r.id === activeProductId) || recommendations[0];
   if (!activeRec) return null;
@@ -491,7 +481,7 @@ function StageDeepDive() {
         <div>
           <div className="cp-deep-hero">
             <div className="cp-deep-media">
-              {activeRec.productImageUrl && <img src={activeRec.productImageUrl} alt={activeRec.productName} referrerPolicy="no-referrer" />}
+              {activeRec.productImageUrl && <img src={activeRec.productImageUrl} alt={activeRec.productName} referrerPolicy="strict-origin-when-cross-origin" />}
               <span className="cp-deep-media-fit">{Math.round(activeRec.matchScore * 100)}% Match</span>
             </div>
 
@@ -651,7 +641,7 @@ function StageArchive() {
             {recs.map(rec => (
               <article key={rec.id} className="cp-rec" onClick={() => { setActiveProduct(rec.id); setPhase("deepdive"); }}>
                 <div className="cp-rec-media">
-                  {rec.productImageUrl && <img src={rec.productImageUrl} alt={rec.productName} referrerPolicy="no-referrer" />}
+                  {rec.productImageUrl && <img src={rec.productImageUrl} alt={rec.productName} referrerPolicy="strict-origin-when-cross-origin" />}
                   <span className="cp-rec-fit">{Math.round(rec.matchScore * 100)}% Match</span>
                   <div className="cp-rec-rank">{rec.rank}</div>
                 </div>
@@ -690,11 +680,39 @@ function StageArchive() {
 /* ══════════════════════════════════════════════════════════════════
    MAIN CHAT PAGE
    ══════════════════════════════════════════════════════════════════ */
+function BackendDownScreen() {
+  const navigate = useNavigate();
+  return (
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "60vh", textAlign: "center", padding: "40px var(--cp-pad)" }}>
+      <div style={{ fontSize: 64, lineHeight: 1, marginBottom: 24, opacity: 0.25 }}>503</div>
+      <h2 style={{ fontFamily: "var(--cp-serif)", fontSize: "clamp(24px,3vw,36px)", fontWeight: 400, marginBottom: 12 }}>Backend not reachable</h2>
+      <p style={{ color: "var(--cp-mute)", fontSize: 15, maxWidth: 420, lineHeight: 1.6, marginBottom: 32 }}>
+        ShopMind couldn't connect to the server. Make sure the backend is running on{" "}
+        <code style={{ background: "var(--cp-panel)", padding: "2px 6px", borderRadius: 4, fontSize: 13 }}>
+          localhost:8080
+        </code>{" "}
+        and try again.
+      </p>
+      <div style={{ display: "flex", gap: 12 }}>
+        <button className="cp-btn cp-btn--dark" onClick={() => window.location.reload()}>
+          Retry
+        </button>
+        <button className="cp-btn cp-btn--ghost" onClick={() => navigate("/")}>
+          Go home
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function ChatPage() {
-  const { phase, setPhase, recommendations, initSession, loadArchive, send } = useChatStore();
+  const { phase, setPhase, recommendations, initSession, loadArchive, send, backendDown } = useChatStore();
   const location = useLocation();
+  const initialized = useRef(false);
 
   useEffect(() => {
+    if (initialized.current) return;
+    initialized.current = true;
     const query = (location.state as { query?: string } | null)?.query?.trim();
     initSession().then(() => {
       if (query) {
@@ -731,7 +749,7 @@ export default function ChatPage() {
     <div className="cp-app">
       <TopNav activeTab={activeTab} onTab={handleTab} />
       <main className="cp-main">
-        <Stage />
+        {backendDown ? <BackendDownScreen /> : <Stage />}
       </main>
     </div>
   );
