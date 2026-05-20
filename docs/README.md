@@ -2,6 +2,7 @@
 
 ShopMind is a full-stack AI shopping assistant that helps users find footwear they won't regret. It replaces generic product grids with a guided conversation, scores every product against the user's stated priorities, and explains every recommendation with transparent reasoning and tradeoff analysis.
 
+#Demo link:- https://drive.google.com/file/d/1S3y-g1Vj3OxC8WNvea6t9ybEF-H3xsk-/view?usp=sharing
 ---
 
 ## Table of Contents
