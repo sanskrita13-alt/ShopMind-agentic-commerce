@@ -24,7 +24,7 @@ import java.util.*;
 public class MockAiService implements AiService {
 
     private static final List<String> KEY_ATTRIBUTES = List.of(
-        "primaryUseCase", "gender", "walkingDuration", "budget",
+        "primaryUseCase", "walkingDuration", "budget",
         "comfortPriority", "stylePriority", "preferredFit"
     );
 
@@ -78,29 +78,6 @@ public class MockAiService implements AiService {
         } else if (allMessages.contains("casual") || allMessages.contains("everyday") || allMessages.contains("daily") || allMessages.contains("regular")) {
             builder.primaryUseCase("casual daily wear");
             missing.remove("primaryUseCase");
-        }
-
-        // ── Gender ────────────────────────────────────────────────────────────
-        // Check female first because "women" contains "men"
-        if (allMessages.contains("female") || allMessages.contains("women") || allMessages.contains("woman")
-                || allMessages.contains("girl") || allMessages.contains("ladies") || allMessages.contains("lady")
-                || allMessages.contains(" she ") || allMessages.contains(" her ") || allMessages.contains("herself")
-                || allMessages.contains("wife") || allMessages.contains("girlfriend") || allMessages.contains("sister")
-                || allMessages.contains("mother") || allMessages.contains("mom") || allMessages.contains("daughter")) {
-            builder.gender("female");
-            missing.remove("gender");
-        } else if (allMessages.contains("male") || allMessages.contains(" men") || allMessages.contains("man ")
-                || allMessages.contains("guy") || allMessages.contains("gents") || allMessages.contains("boys")
-                || allMessages.contains(" he ") || allMessages.contains(" him ") || allMessages.contains("himself")
-                || allMessages.contains("husband") || allMessages.contains("boyfriend") || allMessages.contains("brother")
-                || allMessages.contains("father") || allMessages.contains("dad") || allMessages.contains("son")
-                || allMessages.contains("myself") || allMessages.contains(" i am") || allMessages.contains("i'm a")) {
-            builder.gender("male");
-            missing.remove("gender");
-        } else if (allMessages.contains("unisex") || allMessages.contains("gender neutral")
-                || allMessages.contains("non-binary") || allMessages.contains("they") || allMessages.contains("either")) {
-            builder.gender("unisex");
-            missing.remove("gender");
         }
 
         // ── Walking duration — natural language aware ─────────────────────────
@@ -264,14 +241,6 @@ public class MockAiService implements AiService {
             case "primaryUseCase" -> {
                 question = "What will you mainly use these for — college, gym, running, walking, or casual everyday wear?";
                 reasoning = "Use case is the foundation of the recommendation.";
-            }
-            case "gender" -> {
-                if (useCase != null) {
-                    question = "And are these for men's, women's, or unisex styles? (Helps me filter the right products for " + useCase + ".)";
-                } else {
-                    question = "Are you shopping for men's, women's, or unisex styles?";
-                }
-                reasoning = "Gender helps filter the correct product lines and styling options.";
             }
             case "walkingDuration" -> {
                 if (useCase != null) {
@@ -483,18 +452,6 @@ public class MockAiService implements AiService {
             }
         }
 
-        // ── Gender match ──────────────────────────────────────────────────────
-        String productGender = String.valueOf(attrs.getOrDefault("gender", "unisex"));
-        if (intent.getGender() != null && !"unisex".equals(intent.getGender())) {
-            if (productGender.equals(intent.getGender())) {
-                score += 0.1; // designed for this gender
-            } else if (!"unisex".equals(productGender)) {
-                score -= 0.15; // wrong gender-specific product
-                notSuitableList.add("Designed for " + productGender + " — may not match your preference");
-            }
-            // unisex products get no bonus or penalty — always fine
-        }
-
         // Casual mismatch warning for pure running shoes
         if (tags.contains("running") && intent.getPrimaryUseCase() != null
             && intent.getPrimaryUseCase().toLowerCase().contains("casual")) {
@@ -576,20 +533,9 @@ public class MockAiService implements AiService {
                 : "Best used for its primary purpose only. ");
         }
 
-        // Gender commentary
-        if (intent.getGender() != null) {
-            Map<String, Object> attrs = product.getAttributes() != null ? product.getAttributes() : Map.of();
-            String pGender = String.valueOf(attrs.getOrDefault("gender", "unisex"));
-            if ("unisex".equals(pGender)) {
-                sb.append("Available in unisex sizing — suitable for ").append(intent.getGender()).append(" shoppers. ");
-            } else if (pGender.equals(intent.getGender())) {
-                sb.append("Designed specifically for ").append(intent.getGender()).append(" shoppers. ");
-            }
-        }
-
         // Budget commentary
         if (product.getMinPrice() != null) {
-            sb.append("At ₹").append(product.getMinPrice().intValue()).append(", ");
+            sb.append("At $").append(product.getMinPrice().intValue()).append(", ");
             if (intent.getBudget() != null && product.getMinPrice() <= intent.getBudget()) {
                 sb.append("it fits within your budget.");
             } else if (intent.getBudget() != null) {
